@@ -1,0 +1,10 @@
+version: 1
+default: dag
+selection:
+  - id: only
+    when: { always: true }
+    strategy: does_not_exist
+strategies:
+  dag:
+    parallel: true
+    max_parallel: 2

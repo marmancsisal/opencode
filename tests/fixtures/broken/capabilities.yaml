@@ -1,0 +1,9 @@
+version: 1
+phases:
+  build: 10
+defaults: {}
+capabilities:
+  implementation:
+    title: Implementation
+    intent: Deliberately broken fixture — references an unknown phase.
+    phase: delivery

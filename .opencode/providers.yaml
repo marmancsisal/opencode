@@ -1,0 +1,176 @@
+# CAAO — Provider Registry
+#
+# Providers describe WHO executes a capability.
+# Capabilities never reference this file. Policies never reference this file.
+# Replacing a model is a one-line edit here and changes nothing else.
+#
+# `pools`    logical, named execution units with measurable traits (1..5)
+# `tier`     heavy | standard | light — reporting and escalation metadata only
+# `pricing`  real money, in USD per million tokens. `traits.cost` is a 1..5 rank
+#            used for *routing*; `pricing` is used for *accounting*. Keep both:
+#            routing must not depend on a number that changes with a price list.
+# `bindings` capability -> ordered candidates + selection strategy
+# `overrides` per-binding conditional re-binding, evaluated against run signals.
+#            First match wins. This is where "escalate to a heavy model when the
+#            request was not understood confidently" is expressed.
+# Candidates that are not selected become the fallback chain used by retries.
+
+version: 1
+
+defaults:
+  strategy: balanced
+  timeout_ms: 300000
+  max_attempts: 2
+  currency: USD
+  # Applied when a pool declares no pricing, so an unpriced model is visibly
+  # wrong in the dashboard instead of silently free.
+  pricing: { input_per_mtok: 0, output_per_mtok: 0 }
+
+# How a strategy ranks candidates. Traits are scored ascending unless negated.
+strategies:
+  fastest:
+    rank_by: [-speed, cost]
+  cheapest:
+    rank_by: [cost, -speed]
+  highest_reasoning:
+    rank_by: [-reasoning, -quality]
+  highest_quality:
+    rank_by: [-quality, -reasoning]
+  balanced:
+    rank_by: [-quality, cost]
+  declared:
+    # keep the author-declared candidate order untouched
+    rank_by: []
+
+pools:
+  opus-5:
+    model: omniroute/github/claude-opus-5
+    tier: heavy
+    traits: { reasoning: 5, quality: 5, speed: 2, cost: 5 }
+    pricing: { input_per_mtok: 15.00, output_per_mtok: 75.00 }
+    temperature: 0.1
+    context_limit: 200000
+  kimi-code:
+    model: omniroute/github/kimi-k2.7-code
+    tier: standard
+    traits: { reasoning: 3, quality: 4, speed: 5, cost: 1 }
+    pricing: { input_per_mtok: 0.60, output_per_mtok: 2.50 }
+    temperature: 0.2
+    context_limit: 131000
+
+# Add further heavy pools here — nothing else in the system changes.
+# Declare the model in opencode.json, then reference the pool in `candidates`:
+#
+#  gpt-5:
+#    model: omniroute/openai/gpt-5
+#    tier: heavy
+#    traits: { reasoning: 5, quality: 5, speed: 3, cost: 4 }
+#    pricing: { input_per_mtok: 10.00, output_per_mtok: 30.00 }
+#    temperature: 0.1
+
+# ---------------------------------------------------------------------------
+# Escalation profiles — reusable candidate sets referenced by overrides.
+# ---------------------------------------------------------------------------
+profiles:
+  heavy:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+  fast:
+    strategy: fastest
+    candidates: [kimi-code, opus-5]
+
+bindings:
+  triage:
+    strategy: fastest
+    candidates: [kimi-code, opus-5]
+    overrides:
+      # A request nobody can parse deserves the expensive interpreter.
+      - when: { any: { changed_files: { gt: 40 } } }
+        profile: heavy
+        reason: a very large working tree makes cheap classification unreliable
+
+  research:
+    strategy: cheapest
+    candidates: [kimi-code, opus-5]
+
+  planning:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+  implementation:
+    strategy: fastest
+    candidates: [kimi-code, opus-5]
+    overrides:
+      - when: { understanding: [uncertain, guessed] }
+        profile: heavy
+        reason: the request was not understood confidently — do not let a fast model guess
+      - when: { complexity: [critical] }
+        profile: heavy
+        reason: critical blast radius outweighs latency and cost
+      - when: { touches: [crypto] }
+        profile: heavy
+        reason: cryptographic code is never written by the cheapest available model
+
+  migration:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+  refactoring:
+    strategy: fastest
+    candidates: [kimi-code, opus-5]
+    overrides:
+      - when: { any: { complexity: [critical], understanding: [uncertain, guessed] } }
+        profile: heavy
+        reason: structural change on an unclear or repository-wide scope
+
+  optimization:
+    strategy: balanced
+    candidates: [kimi-code, opus-5]
+
+  debugging:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+  testing:
+    strategy: fastest
+    candidates: [kimi-code, opus-5]
+
+  review:
+    strategy: highest_quality
+    candidates: [opus-5, kimi-code]
+
+  security:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+  architecture:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+  performance:
+    strategy: highest_quality
+    candidates: [opus-5, kimi-code]
+
+  documentation:
+    strategy: cheapest
+    candidates: [kimi-code, opus-5]
+    overrides:
+      - when: { touches: [public_api] }
+        profile: heavy
+        reason: a public contract is documentation that other people build against
+
+  advisor:
+    strategy: highest_reasoning
+    candidates: [opus-5, kimi-code]
+
+# ---------------------------------------------------------------------------
+# Budgets — spend guardrails, in the currency declared under `defaults`.
+# Purely observational: the dashboard reports against them, the engine never
+# refuses work because of them. Refusing to finish a run is worse than the cost.
+# ---------------------------------------------------------------------------
+budgets:
+  monthly_total: 5000
+  per_repo_monthly: 800
+  per_run: 5.00
+  # Fraction of a budget at which the dashboard turns the figure amber.
+  warn_at: 0.80

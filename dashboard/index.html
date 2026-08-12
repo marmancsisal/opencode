@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CAAO Control · orchestration &amp; spend</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>◈</text></svg>" />
+  </head>
+  <body>
+    <div class="gate" id="gate" hidden>
+      <form class="gate-panel" id="gate-form">
+        <span class="brand-mark">◈</span>
+        <h1>CAAO Control</h1>
+        <p class="muted">Administrator console. This surface reports company-wide spend, repository names and
+          developer identities, and is not intended for developers.</p>
+        <label class="field">
+          <span>Admin token</span>
+          <input type="password" id="gate-token" autocomplete="current-password" required />
+        </label>
+        <button class="primary" type="submit">Sign in</button>
+        <p class="gate-error" id="gate-error" hidden></p>
+      </form>
+    </div>
+
+    <div class="shell" id="shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">◈</span>
+          <span>
+            <strong>CAAO Control</strong>
+            <small>capability orchestration</small>
+          </span>
+        </div>
+
+        <nav id="nav">
+          <button class="nav-item active" data-view="overview"><span class="ico">▤</span> Overview</button>
+          <button class="nav-item" data-view="runs"><span class="ico">◷</span> Runs</button>
+          <button class="nav-item" data-view="costs"><span class="ico">◎</span> Costs</button>
+          <button class="nav-item" data-view="repos"><span class="ico">⑂</span> Repositories</button>
+          <button class="nav-item" data-view="models"><span class="ico">◇</span> Models &amp; routing</button>
+          <button class="nav-item" data-view="catalog"><span class="ico">⌘</span> MCP &amp; skills</button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <label class="field">
+            <span>Repository</span>
+            <select id="repo-filter"><option value="">All repositories</option></select>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="live" checked />
+            <span>Live refresh</span>
+          </label>
+          <div class="pulse" id="pulse">—</div>
+          <button class="ghost" id="sign-out">Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1 id="view-title">Overview</h1>
+            <p id="view-subtitle" class="muted">Company-wide orchestration activity.</p>
+          </div>
+          <div class="topbar-right" id="topbar-stats"></div>
+        </header>
+
+        <section id="view" class="view"><div class="loading">Loading…</div></section>
+      </main>
+    </div>
+
+    <div class="drawer" id="drawer" hidden>
+      <div class="drawer-backdrop" data-close></div>
+      <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="drawer-title">Run</h2>
+            <p class="muted" id="drawer-subtitle"></p>
+          </div>
+          <button class="ghost" data-close aria-label="Close">✕</button>
+        </header>
+        <div class="drawer-tabs" id="drawer-tabs">
+          <button class="tab active" data-tab="graph">Execution DAG</button>
+          <button class="tab" data-tab="why">Why this DAG</button>
+          <button class="tab" data-tab="tasks">Tasks &amp; models</button>
+        </div>
+        <div class="drawer-body" id="drawer-body"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

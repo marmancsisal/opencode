@@ -1,0 +1,15 @@
+version: 1
+classification:
+  intents:
+    - id: implement
+      default: true
+  complexity:
+    - id: medium
+      default: true
+  domains: {}
+base:
+  - id: fallback
+    when: { always: true }
+    capabilities: [implementation, ghost_capability]
+augment: []
+post: []

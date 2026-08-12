@@ -1,0 +1,22 @@
+{
+  "name": "caao-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/node.cjs --test \"tests/*.test.mjs\"",
+    "test:e2e": "node scripts/node.cjs tests/integration/e2e.mjs",
+    "test:dashboard": "node scripts/node.cjs tests/integration/dashboard.mjs",
+    "test:all": "npm test && npm run test:e2e && npm run test:dashboard",
+    "caao:sync": "node scripts/node.cjs .opencode/caao/sync.mjs",
+    "caao:catalog": "node scripts/node.cjs .opencode/caao/catalog.mjs",
+    "caao:doctor": "node scripts/node.cjs .opencode/caao/doctor.mjs",
+    "caao:update": "node scripts/node.cjs .opencode/caao/update.mjs",
+    "caao:keygen": "node scripts/node.cjs .opencode/caao/keygen.mjs",
+    "caao:dashboard": "node scripts/node.cjs .opencode/caao/server.mjs",
+    "caao:dashboard:dev": "node scripts/node.cjs .opencode/caao/server.mjs --dev",
+    "caao:dist": "node scripts/node.cjs .opencode/caao/server.mjs --dist"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

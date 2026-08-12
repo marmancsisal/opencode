@@ -1,0 +1,254 @@
+# CAAO — Policy Engine
+#
+# This is the ONLY place where orchestration decisions are expressed.
+# Policies never reference models, providers or agents.
+#
+# Two groups, evaluated in order:
+#   base      first match wins  -> the minimal capability set for the request
+#   augment   additive          -> context-driven additions, composed on top
+#
+# Signals available to `when`:
+#   intent            classified intent id
+#   complexity        trivial | medium | high | critical
+#   understanding     confident | probable | uncertain | guessed
+#   classification_confidence  float 0..1, how well the request was understood
+#   touches           list of domain ids detected in the request and in the diff
+#   changed_files     integer  (git working tree + planner scope estimate)
+#   confidence        float    (post-execution stage only)
+#   capabilities      capability ids already selected (composition rules)
+#   keywords          any/all keyword match against the raw request
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Classification
+# ---------------------------------------------------------------------------
+classification:
+  # -------------------------------------------------------------------------
+  # Semantic layer.
+  #
+  # Keywords are a prior, not a verdict. The `triage` capability reads the
+  # request the way a human would and returns intent, complexity, domains and
+  # its own confidence. This section decides how much that verdict is trusted.
+  #
+  # The keyword rules below still run: they are the fallback when triage is
+  # unavailable, and the disagreement baseline when triage is unsure.
+  # -------------------------------------------------------------------------
+  semantic:
+    enabled: true
+    complexity_order: [trivial, medium, high, critical]
+    # Confidence bands, evaluated top-down.
+    bands:
+      - id: confident
+        min: 0.80
+        adopt: semantic          # the model understood the request; use its verdict
+      - id: probable
+        min: 0.60
+        adopt: conservative      # trust the intent, take the higher complexity of the two
+      - id: uncertain
+        min: 0.40
+        adopt: conservative
+        raise_complexity: 1      # when unsure, buy more scrutiny
+      - id: guessed
+        min: 0.0
+        adopt: keywords          # discard the semantic verdict
+        raise_complexity: 1
+    # Domains detected by either layer are always kept: a false negative on a
+    # security-relevant domain costs more than an extra reviewer.
+    domains: union
+    # Applied when the two layers disagree on intent while confidence is not high.
+    on_disagreement: conservative
+
+  # First match wins.
+  intents:
+    - id: document
+      keywords: [document, documentation, readme, changelog, docstring, api docs, adr, tutorial, guide]
+    - id: migrate
+      keywords: [migration, migrate, backfill, schema change, alembic, flyway, liquibase, data move]
+    - id: optimize
+      keywords: [optimize, optimise, optimization, speed up, faster, latency, throughput, memory usage, n+1, slow query, cache]
+    - id: refactor
+      keywords: [refactor, restructure, decouple, modularize, modularise, extract module, split monolith, monolith, clean up architecture]
+    - id: debug
+      keywords: [bug, fix, failing, broken, crash, regression, stack trace, exception, does not work, flaky]
+    - id: research
+      keywords: [investigate, research, evaluate, compare, feasibility, spike, trade-off, how does, why does]
+    - id: rename
+      keywords: [rename, typo, whitespace, reformat, format only, bump version, comment only]
+    - id: implement
+      default: true
+
+  # First match wins.
+  complexity:
+    - id: critical
+      any:
+        keywords: [monolith, rearchitect, re-architect, entire codebase, whole system, from scratch, rewrite, multi-service, distributed transaction]
+        changed_files: { gt: 50 }
+    - id: high
+      any:
+        keywords: [implement, feature, integrate, integration, oauth, authentication, end-to-end, new service, new module, pipeline, workflow]
+        changed_files: { gt: 20 }
+    - id: trivial
+      all:
+        keywords: [rename, typo, whitespace, reformat, comment, bump version, constant]
+        changed_files: { lte: 2 }
+    - id: medium
+      default: true
+
+  # Domains are matched against the request text and against changed file paths.
+  domains:
+    auth:
+      keywords: [oauth, auth, authentication, authorization, login, signin, sso, jwt, token, session, password, credential, permission]
+      paths: ["**/auth/**", "**/*auth*", "**/login/**", "**/session/**", "**/identity/**"]
+    payments:
+      keywords: [payment, billing, invoice, stripe, paypal, checkout, subscription, refund, ledger, pricing]
+      paths: ["**/payment*/**", "**/billing/**", "**/checkout/**", "**/invoice*/**"]
+    crypto:
+      keywords: [encrypt, decrypt, cipher, hashing, secret, key rotation, tls, certificate, signature]
+      paths: ["**/crypto/**", "**/secrets/**", "**/*.pem", "**/*.key"]
+    database:
+      keywords: [database, sql, query, schema, table, index, orm, postgres, mysql, sqlite, mongo, migration]
+      paths: ["**/migrations/**", "**/*.sql", "**/models/**", "**/entities/**", "**/db/**", "**/repository/**"]
+    public_api:
+      keywords: [api, endpoint, rest, graphql, openapi, swagger, sdk, public interface, contract]
+      paths: ["**/api/**", "**/routes/**", "**/controllers/**", "**/handlers/**", "**/openapi*"]
+    infrastructure:
+      keywords: [docker, kubernetes, terraform, helm, ci, cd, pipeline, deploy, infrastructure, ansible]
+      paths: ["**/*.tf", "**/k8s/**", "**/helm/**", "**/.github/workflows/**", "**/Dockerfile*", "**/docker-compose*"]
+    frontend:
+      keywords: [ui, component, react, vue, svelte, css, frontend, accessibility, a11y]
+      paths: ["**/components/**", "**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte", "**/*.css"]
+    tests:
+      keywords: [test, spec, unit test, integration test, e2e, coverage]
+      paths: ["**/tests/**", "**/test/**", "**/*.test.*", "**/*.spec.*", "**/__tests__/**"]
+
+# ---------------------------------------------------------------------------
+# Base policies — first match wins
+# ---------------------------------------------------------------------------
+base:
+  - id: doc-only
+    when: { intent: [document] }
+    capabilities: [documentation]
+
+  - id: trivial-change
+    when: { any: { intent: [rename], complexity: [trivial] } }
+    capabilities: [implementation]
+
+  - id: defect
+    when: { intent: [debug] }
+    capabilities: [implementation, testing]
+
+  - id: optimization
+    when: { intent: [optimize] }
+    capabilities: [planning, implementation, performance]
+
+  - id: migration
+    when: { intent: [migrate] }
+    capabilities: [planning, migration, review]
+
+  - id: large-refactor
+    when: { intent: [refactor], complexity: [critical] }
+    capabilities: [planning, refactoring, architecture, performance]
+
+  - id: refactor
+    when: { intent: [refactor] }
+    capabilities: [planning, refactoring, review]
+
+  - id: investigation
+    when: { intent: [research] }
+    capabilities: [research, planning]
+
+  - id: critical-work
+    when: { complexity: [critical] }
+    capabilities: [planning, implementation, review, architecture]
+
+  - id: high-complexity
+    when: { complexity: [high] }
+    capabilities: [planning, implementation, review]
+
+  - id: medium-complexity
+    when: { complexity: [medium] }
+    capabilities: [implementation, review]
+
+  - id: fallback
+    when: { always: true }
+    capabilities: [implementation]
+
+# ---------------------------------------------------------------------------
+# Augment policies — additive, all matches apply
+# ---------------------------------------------------------------------------
+augment:
+  - id: touches-auth
+    when: { touches: [auth] }
+    capabilities: [security]
+    reason: authentication surface requires an adversarial review
+
+  - id: touches-payments
+    when: { touches: [payments] }
+    capabilities: [security, architecture]
+    reason: money-handling code requires security and structural review
+
+  - id: touches-crypto
+    when: { touches: [crypto] }
+    capabilities: [security]
+    reason: cryptographic material must never be reviewed by the author only
+
+  - id: wide-change
+    when: { changed_files: { gt: 20 } }
+    capabilities: [architecture]
+    reason: a change this wide can silently break module boundaries
+
+  - id: very-wide-change
+    when: { changed_files: { gt: 60 } }
+    capabilities: [architecture, performance]
+    reason: repository-scale changes need structural and runtime validation
+
+  - id: public-contract
+    when: { touches: [public_api] }
+    capabilities: [documentation]
+    reason: a public contract that is not documented does not exist
+
+  - id: infrastructure
+    when: { touches: [infrastructure] }
+    capabilities: [architecture, security]
+    reason: infrastructure changes have blast radius beyond the repository
+
+  - id: migration-safety
+    when: { capabilities: [migration] }
+    capabilities: [testing]
+    reason: never ship an unverified migration
+
+  - id: mutating-work-needs-proof
+    when: { all: { complexity: [high, critical], capabilities: [implementation] } }
+    capabilities: [testing]
+    reason: non-trivial implementations must be proven
+
+  - id: unclear-request
+    when: { understanding: [uncertain, guessed] }
+    capabilities: [planning]
+    reason: a request the system did not understand is decomposed before it is executed
+
+  - id: understanding-collapsed
+    when: { classification_confidence: { lt: 0.40 } }
+    capabilities: [review]
+    reason: work derived from a guessed interpretation is never delivered unreviewed
+
+# ---------------------------------------------------------------------------
+# Post-execution policies — evaluated against worker results
+# ---------------------------------------------------------------------------
+post:
+  - id: low-confidence
+    when: { confidence: { lt: 0.60 } }
+    capabilities: [advisor]
+    reason: the system is not confident enough to deliver
+
+  - id: collapsed-confidence
+    when: { confidence: { lt: 0.40 } }
+    capabilities: [advisor]
+    escalate: true
+    reason: confidence collapsed, human judgement is likely required
+
+  - id: blocking-findings
+    when: { findings_blocking: { gte: 1 } }
+    capabilities: [implementation]
+    reason: blocking review findings re-open the build phase

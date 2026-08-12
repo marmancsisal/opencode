@@ -1,0 +1,289 @@
+# CAAO — Capability Registry
+#
+# Capabilities describe WHAT the system can do.
+# They never describe HOW, and never reference a model or a provider.
+#
+# Contract for every capability:
+#   phase            logical stage used by the Workflow Builder to layer the DAG
+#   parallelizable   may run alongside siblings inside the same phase
+#   requires         capabilities that must complete before this one (soft edges)
+#   may_request      capability chaining: this capability can pull in others
+#   context          how much repository context the worker receives
+#   confidence_floor minimum self-reported confidence accepted without escalation
+#   worker           material used to synthesize the disposable worker agent
+
+version: 1
+
+phases:
+  triage: 5
+  analysis: 10
+  plan: 20
+  build: 30
+  verify: 40
+  validate: 50
+  deliver: 60
+  escalate: 70
+
+defaults:
+  confidence_floor: 0.70
+  context: touched
+  parallelizable: true
+  mutates: false
+
+capabilities:
+  triage:
+    title: Triage
+    intent: Understand what the developer actually means, semantically, before any work is planned.
+    phase: triage
+    context: repo-wide
+    parallelizable: false
+    confidence_floor: 0.50
+    outputs: [intent, complexity, domains, rationale]
+    worker:
+      objective: Interpret the request as a human expert would, not as a keyword matcher would.
+      checklist:
+        - Judge the real goal, not the literal wording. "Make login stop breaking" is a defect, not a feature.
+        - Judge effort by blast radius: how many components must change, and how reversible is the change.
+        - Report every domain the work genuinely touches, including ones the request never names.
+        - Say what you are unsure about. Low confidence is a valid, useful answer.
+        - Never propose a solution. You classify, you do not design.
+      output_contract: >-
+        a single JSON object:
+        {"intent": one of [document, migrate, optimize, refactor, debug, research, rename, implement],
+         "complexity": one of [trivial, medium, high, critical],
+         "domains": [auth|payments|crypto|database|public_api|infrastructure|frontend|tests],
+         "rationale": "one sentence",
+         "ambiguities": ["..."],
+         "confidence": 0.00-1.00}
+
+  research:
+    title: Research
+    intent: Gather external or internal knowledge required before a decision can be made.
+    phase: analysis
+    context: repo-wide
+    confidence_floor: 0.60
+    may_request: [planning]
+    outputs: [findings, constraints, references]
+    worker:
+      objective: Answer the open questions blocking the request with verifiable evidence.
+      checklist:
+        - Identify every unknown that blocks a decision.
+        - Prefer evidence found in the repository over assumptions.
+        - State explicitly what could not be determined.
+      output_contract: findings, constraints, open_questions, confidence
+
+  planning:
+    title: Planning
+    intent: Decompose a request into an executable dependency graph of independent units of work.
+    phase: plan
+    context: repo-wide
+    parallelizable: false
+    confidence_floor: 0.75
+    requires: []
+    may_request: [research]
+    outputs: [dag, subtasks, risks]
+    worker:
+      objective: Produce a minimal dependency graph, never a linear script.
+      checklist:
+        - Split the work into units that can genuinely run in parallel.
+        - Declare inputs, outputs and dependencies for every unit.
+        - Keep the graph as small as the request allows.
+        - Never implement anything.
+      output_contract: subtasks[{id,title,capability,depends_on,inputs,outputs}], risks, confidence
+
+  implementation:
+    title: Implementation
+    intent: Produce the concrete change that satisfies the request.
+    phase: build
+    context: touched
+    mutates: true
+    confidence_floor: 0.70
+    may_request: [testing, debugging]
+    outputs: [diff, files_changed, notes]
+    worker:
+      objective: Implement exactly the assigned unit of work and nothing else.
+      checklist:
+        - Stay inside the assigned scope and file set.
+        - Follow the conventions already present in the touched files.
+        - Do not refactor unrelated code.
+        - Report every file you changed.
+      output_contract: files_changed, summary, assumptions, confidence
+
+  migration:
+    title: Migration
+    intent: Evolve persisted state or public contracts safely across versions.
+    phase: build
+    context: touched
+    mutates: true
+    parallelizable: false
+    confidence_floor: 0.85
+    may_request: [testing]
+    outputs: [migration, rollback, compatibility_notes]
+    worker:
+      objective: Deliver a forward migration together with an explicit rollback path.
+      checklist:
+        - Always provide a reversible path.
+        - Call out destructive operations explicitly.
+        - Describe the backward-compatibility window.
+      output_contract: forward, rollback, destructive_operations, confidence
+
+  refactoring:
+    title: Refactoring
+    intent: Improve internal structure without changing observable behaviour.
+    phase: build
+    context: touched
+    mutates: true
+    confidence_floor: 0.75
+    may_request: [testing]
+    outputs: [diff, structural_changes]
+    worker:
+      objective: Restructure code while keeping behaviour identical.
+      checklist:
+        - Preserve public behaviour exactly.
+        - Keep each structural move independently reviewable.
+        - Flag anything that cannot be changed behaviour-preservingly.
+      output_contract: files_changed, behaviour_preserved, confidence
+
+  optimization:
+    title: Optimization
+    intent: Reduce cost, latency or resource usage of an existing implementation.
+    phase: build
+    context: touched
+    mutates: true
+    confidence_floor: 0.75
+    may_request: [performance, testing]
+    outputs: [diff, expected_gain]
+    worker:
+      objective: Make the target measurably cheaper or faster.
+      checklist:
+        - Establish the baseline before changing anything.
+        - Quantify the expected gain.
+        - Reject changes that trade correctness for speed.
+      output_contract: files_changed, baseline, expected_gain, confidence
+
+  debugging:
+    title: Debugging
+    intent: Locate the root cause of an observed failure.
+    phase: build
+    context: touched
+    mutates: true
+    confidence_floor: 0.70
+    may_request: [testing]
+    outputs: [root_cause, fix]
+    worker:
+      objective: Find the root cause, then fix it — never patch the symptom.
+      checklist:
+        - Reproduce or precisely characterise the failure first.
+        - Separate root cause from symptom.
+        - Explain why the fix addresses the cause.
+      output_contract: root_cause, fix, files_changed, confidence
+
+  testing:
+    title: Testing
+    intent: Prove the change behaves as intended.
+    phase: verify
+    context: tests
+    mutates: true
+    confidence_floor: 0.75
+    outputs: [tests, results]
+    worker:
+      objective: Verify the change with executable tests.
+      checklist:
+        - Cover the behaviour that was actually changed.
+        - Include at least one failure/edge case.
+        - Report real command output, never assumed results.
+      output_contract: tests_added, command, result, confidence
+
+  review:
+    title: Code Review
+    intent: Judge correctness, readability and scope discipline of the produced change.
+    phase: validate
+    context: diff
+    confidence_floor: 0.70
+    may_request: [security, performance]
+    outputs: [findings, verdict]
+    worker:
+      objective: Review the aggregated diff as a whole.
+      checklist:
+        - Check correctness against the original request.
+        - Flag scope creep and dead code.
+        - Classify every finding as blocking or advisory.
+      output_contract: findings[{severity,file,issue}], verdict, confidence
+
+  security:
+    title: Security Review
+    intent: Detect exploitable weaknesses introduced or exposed by the change.
+    phase: validate
+    context: diff
+    confidence_floor: 0.85
+    may_request: [review]
+    outputs: [findings, verdict]
+    worker:
+      objective: Attack the change before someone else does.
+      checklist:
+        - Walk the OWASP Top 10 against the touched surface.
+        - Check authn/authz boundaries, secrets, injection and deserialization.
+        - Verify untrusted input is validated at the boundary.
+      output_contract: findings[{severity,vector,file}], verdict, confidence
+
+  architecture:
+    title: Architecture Review
+    intent: Judge whether the change is coherent with the system structure.
+    phase: validate
+    context: repo-wide
+    confidence_floor: 0.75
+    outputs: [findings, verdict]
+    worker:
+      objective: Evaluate boundaries, coupling and directional dependencies.
+      checklist:
+        - Detect new cyclic or inverted dependencies.
+        - Check that module boundaries still hold.
+        - Flag abstractions introduced without a second consumer.
+      output_contract: findings, verdict, confidence
+
+  performance:
+    title: Performance Review
+    intent: Judge the runtime and cost characteristics of the change.
+    phase: validate
+    context: diff
+    confidence_floor: 0.75
+    outputs: [findings, verdict]
+    worker:
+      objective: Find the changes that will not scale.
+      checklist:
+        - Look for N+1 access patterns and unbounded growth.
+        - Check hot paths, allocations and I/O amplification.
+        - State complexity before and after.
+      output_contract: findings, complexity_delta, verdict, confidence
+
+  documentation:
+    title: Documentation
+    intent: Express the delivered change in a form a human can consume.
+    phase: deliver
+    context: diff
+    mutates: true
+    confidence_floor: 0.60
+    outputs: [documents]
+    worker:
+      objective: Document what changed and how to use it.
+      checklist:
+        - Document the public surface, not the internals.
+        - Include at least one runnable example.
+        - Never document behaviour that was not implemented.
+      output_contract: documents, summary, confidence
+
+  advisor:
+    title: Advisor
+    intent: Decide what to do when the system is not confident enough to continue.
+    phase: escalate
+    context: diff
+    parallelizable: false
+    confidence_floor: 0.50
+    outputs: [decision, rationale]
+    worker:
+      objective: Choose between retry, provider switch, additional review or human escalation.
+      checklist:
+        - State the reason confidence collapsed.
+        - Choose exactly one recovery action.
+        - Escalate to the human when the request itself is ambiguous.
+      output_contract: decision(retry|switch_provider|add_capability|escalate_human), rationale, confidence

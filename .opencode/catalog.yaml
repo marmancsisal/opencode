@@ -1,0 +1,230 @@
+# CAAO company catalog. This signed file is the source of truth for MCP,
+# reusable skills and context infrastructure. Admin dashboard mutations preserve
+# these comments and never store credentials: use {env:VARIABLE} placeholders.
+version: 1
+defaults:
+  scope: all
+  enabled: true
+mcp:
+  - id: github
+    title: GitHub
+    description: Issues, pull requests and code search on the company GitHub organisation.
+    kind: local
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: 1.4.0
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-github"
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "{env:GITHUB_TOKEN}"
+    tools:
+      - search_repositories
+      - get_issue
+      - create_pull_request
+      - get_file_contents
+    notes: Required for the triage capability to read linked issues.
+  - id: postgres-readonly
+    title: Postgres (read-only)
+    description: Read-only access to the staging database for debugging capabilities.
+    kind: local
+    enabled: true
+    scope:
+      repos:
+        - acme/billing-service
+        - acme/orders-api
+    owner: data-platform
+    version: 0.9.2
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-postgres"
+      - "{env:STAGING_DATABASE_URL}"
+    tools:
+      - query
+      - list_tables
+      - describe_table
+    notes: Credentials are never stored here — only the name of the environment
+      variable.
+  - id: internal-docs
+    title: Internal docs
+    description: Company handbook, ADRs and runbooks, exposed over HTTP.
+    kind: remote
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: 2.0.0
+    url: https://mcp.internal.acme.dev/docs
+    headers:
+      Authorization: Bearer {env:ACME_DOCS_TOKEN}
+    tools:
+      - search_docs
+      - get_doc
+      - list_adrs
+  - id: jira
+    title: Jira
+    description: Ticket lookup for the triage capability.
+    kind: remote
+    enabled: false
+    scope:
+      teams:
+        - payments
+        - platform
+    owner: delivery-team
+    version: 0.3.0
+    url: https://mcp.internal.acme.dev/jira
+    tools:
+      - get_issue
+      - search_issues
+    notes: Disabled pending the SSO migration.
+skills:
+  - id: acme-code-style
+    title: ACME code style
+    description: House style for TypeScript and Go, including the review checklist
+      reviewers must apply.
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: 3.1.0
+    capabilities:
+      - implementation
+      - refactoring
+      - review
+    file: skills/acme-code-style.md
+  - id: acme-security-baseline
+    title: Security baseline
+    description: OWASP-derived checklist, secret handling rules and the crypto
+      approval matrix.
+    enabled: true
+    scope: all
+    owner: security-team
+    version: 2.2.0
+    capabilities:
+      - security
+      - review
+      - implementation
+    file: skills/acme-security-baseline.md
+    notes: Mandatory — the security capability refuses to sign off without it.
+  - id: billing-domain
+    title: Billing domain model
+    description: Invoices, proration and dunning — the vocabulary the billing
+      services assume.
+    enabled: true
+    scope:
+      repos:
+        - acme/billing-service
+    owner: payments
+    version: 1.0.0
+    capabilities:
+      - research
+      - implementation
+      - testing
+    file: skills/billing-domain.md
+  - id: incident-runbook
+    title: Incident runbook
+    description: How to triage, mitigate and write up a production incident.
+    enabled: true
+    scope:
+      teams:
+        - platform
+        - sre
+    owner: sre
+    version: 1.6.0
+    capabilities:
+      - debugging
+      - triage
+    file: skills/incident-runbook.md
+context_tools:
+  - id: caveman
+    title: Caveman
+    description: Terse-output and tool-output compression with reversible local
+      context handling.
+    category: compression
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: latest
+    homepage: https://github.com/JuliusBrussee/caveman-code
+    install: npm install -g @juliusbrussee/caveman-code
+    mode: full
+    mcp:
+      kind: local
+      command:
+        - caveman
+        - mcp-server
+    tools:
+      - caveman_compress
+      - caveman_expand
+    # CAAO never estimates a saving. It reads the numbers the tool itself
+    # publishes, and counts the calls that published none.
+    savings:
+      metadata:
+        before: [original_tokens, tokens_before, input_tokens]
+        after: [compressed_tokens, tokens_after, output_tokens]
+        saved: [tokens_saved, saved_tokens]
+      pattern: "(?<before>\\d+)\\s*(?:->|→)\\s*(?<after>\\d+)\\s*tokens"
+    notes: Compression ratios are estimates; keep exact source and error payloads
+      retrievable.
+  - id: headroom
+    title: Headroom
+    description: Local MCP compression, retrieval and token-savings observability
+      for tool output.
+    category: compression
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: latest
+    homepage: https://github.com/headroomlabs-ai/headroom
+    install: pipx install "headroom-ai[mcp]"
+    mode: on_demand
+    mcp:
+      kind: local
+      command:
+        - headroom
+        - mcp
+        - serve
+    tools:
+      - headroom_compress
+      - headroom_retrieve
+      - headroom_stats
+    savings:
+      tools:
+        - headroom_compress
+        - headroom_stats
+      metadata:
+        before: [original_tokens, originalTokens, tokens_before, input_tokens]
+        after: [compressed_tokens, compressedTokens, tokens_after, output_tokens]
+        saved: [tokens_saved, tokensSaved, saved_tokens]
+      pattern: "saved\\s+(?<saved>\\d+)\\s+tokens"
+    notes: Originals remain locally retrievable; automatic proxy mode is
+      intentionally not forced company-wide.
+  - id: graphify
+    title: Graphify
+    description: Local AST-backed repository knowledge graph for query-first
+      codebase context.
+    category: knowledge_graph
+    enabled: true
+    scope: all
+    owner: platform-team
+    version: latest
+    homepage: https://github.com/Graphify-Labs/graphify
+    install: uv tool install --upgrade "graphifyy[mcp]"
+    setup: graphify . --no-viz
+    refresh: graphify . --update --no-viz
+    mcp:
+      kind: local
+      command:
+        - graphify
+        - .
+        - --mcp
+      environment:
+        GRAPHIFY_QUERY_LOG_DISABLE: "1"
+    tools:
+      - query_graph
+      - get_node
+      - get_neighbors
+      - shortest_path
+    notes: Code indexing stays local; query logging is disabled by default for
+      company repositories.

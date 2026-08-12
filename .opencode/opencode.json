@@ -1,0 +1,82 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "omniroute": {
+      "name": "OmniRoute",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://localhost:20128/v1",
+        "apiKey": "{env:OMNIROUTE_API_KEY}"
+      },
+      "models": {
+        "github/kimi-k2.7-code": {
+          "name": "github/kimi-k2.7-code",
+          "limit": {
+            "context": 131000,
+            "output": 262144,
+            "input": 131000
+          }
+        },
+        "github/claude-opus-5": {
+          "name": "github/claude-opus-5",
+          "limit": {
+            "context": 200000,
+            "input": 200000,
+            "output": 128000
+          }
+        }
+      }
+    }
+  },
+  "mcp": {
+    "github": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "enabled": true,
+      "environment": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_TOKEN}"
+      }
+    },
+    "internal-docs": {
+      "type": "remote",
+      "url": "https://mcp.internal.acme.dev/docs",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:ACME_DOCS_TOKEN}"
+      }
+    },
+    "caveman": {
+      "type": "local",
+      "command": [
+        "caveman",
+        "mcp-server"
+      ],
+      "enabled": true
+    },
+    "headroom": {
+      "type": "local",
+      "command": [
+        "headroom",
+        "mcp",
+        "serve"
+      ],
+      "enabled": true
+    },
+    "graphify": {
+      "type": "local",
+      "command": [
+        "graphify",
+        ".",
+        "--mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "GRAPHIFY_QUERY_LOG_DISABLE": "1"
+      }
+    }
+  }
+}

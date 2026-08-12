@@ -1,0 +1,125 @@
+# CAAO — Workflow Strategies
+#
+# Defines HOW a resolved capability set is executed.
+# Never defines WHICH capabilities run (policies.yaml) or WHO runs them (providers.yaml).
+
+version: 1
+
+default: dag
+
+# First match wins.
+selection:
+  - id: direct
+    when: { capability_count: { lte: 1 } }
+    strategy: direct
+  - id: swarm
+    when: { any: { complexity: [critical], capability_count: { gte: 5 } } }
+    strategy: swarm
+  - id: dag
+    when: { always: true }
+    strategy: dag
+
+strategies:
+  direct:
+    description: A single capability executed in place. No orchestration overhead.
+    parallel: false
+    max_parallel: 1
+    expand_plan: false
+    merge: passthrough
+
+  sequential:
+    description: Ordered execution used when every node depends on the previous one.
+    parallel: false
+    max_parallel: 1
+    expand_plan: false
+    merge: sequential-apply
+
+  dag:
+    description: Phase-layered dependency graph, siblings run concurrently.
+    parallel: true
+    max_parallel: 6
+    expand_plan: true
+    merge: sequential-apply
+
+  swarm:
+    description: DAG execution where the plan node fans out into many disposable workers.
+    parallel: true
+    max_parallel: 8
+    expand_plan: true
+    expand_limit: 40
+    merge: sequential-apply
+
+execution:
+  # Order in which phases are layered into the graph.
+  phase_order: [triage, analysis, plan, build, verify, validate, deliver, escalate]
+  # Which phases a phase actually consumes the output of.
+  # This is what keeps the graph wide: verification and validation both read the
+  # build output, so they run at the same time instead of one after the other.
+  # A declared phase that is absent from the run contributes no edge; if none of
+  # the declared phases are present, the node falls back to the closest preceding
+  # phase that is, so a capability can never start before its context exists.
+  phase_depends_on:
+    triage: []
+    analysis: []
+    plan: [analysis]
+    build: [plan]
+    verify: [build]
+    validate: [build]
+    deliver: [build, verify, validate]
+  # Workers never talk to each other. Every edge goes through the Execution Manager.
+  worker_isolation: true
+
+confidence:
+  accept: 0.80      # >= accept  -> no further validation triggered by confidence
+  review: 0.60      # >= review  -> continue, but keep the validation gates
+  escalate: 0.40    # <  review  -> advisor; < escalate -> advisor + human escalation
+
+retry:
+  max_attempts: 2
+  on: [error, timeout, low_confidence]
+  # Ordered recovery ladder. Each failed attempt advances one step.
+  ladder:
+    - action: retry_same_provider
+      reason: transient failures are the most common cause
+    - action: switch_provider
+      reason: use the next candidate from the provider fallback chain
+    - action: escalate
+      reason: hand the decision to the advisor capability
+
+merge:
+  strategy: sequential-apply
+  order_by: [phase, node_id]
+  conflict: escalate            # escalate | last-write-wins | abort
+  detect:
+    - same_file_touched_by_multiple_nodes
+    - contradictory_public_signature_change
+    - test_and_implementation_disagreement
+
+context:
+  # How much repository context each context scope hands to a worker.
+  scopes:
+    diff:
+      description: Only the aggregated diff produced by upstream nodes.
+      include: [diff, node_inputs]
+    tests:
+      description: The diff plus the test surface that covers it.
+      include: [diff, test_files, node_inputs]
+    touched:
+      description: Files the node declared plus their direct neighbours.
+      include: [node_files, neighbours, node_inputs]
+    repo-wide:
+      description: Repository map and conventions, not full file contents.
+      include: [repo_map, conventions, node_inputs]
+  budget:
+    max_files_per_worker: 25
+    max_bytes_per_worker: 240000
+
+validation:
+  # Validation is conditional. These gates run only when their capability was selected.
+  gates:
+    review: { blocking: true, on_fail: reopen_build }
+    security: { blocking: true, on_fail: reopen_build }
+    architecture: { blocking: true, on_fail: escalate }
+    performance: { blocking: false, on_fail: annotate }
+    testing: { blocking: true, on_fail: reopen_build }
+  max_reopen_cycles: 2

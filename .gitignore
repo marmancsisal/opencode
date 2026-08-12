@@ -1,0 +1,9 @@
+# Run state and the applied-bundle marker are per machine, never shared.
+.opencode/state/
+
+# Signing keys. The private key must never reach a developer's checkout.
+caao-keys/
+*.key
+caao-signing.pub
+
+node_modules/

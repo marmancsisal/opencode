@@ -1,0 +1,9 @@
+{
+  "name": "caao-opencode",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.15",
+    "yaml": "^2.8.1"
+  }
+}

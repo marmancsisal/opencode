@@ -1,0 +1,13 @@
+version: 1
+defaults:
+  strategy: balanced
+strategies:
+  balanced:
+    rank_by: []
+pools:
+  only:
+    model: fixture/model
+bindings:
+  implementation:
+    strategy: nonexistent
+    candidates: [missing-pool]

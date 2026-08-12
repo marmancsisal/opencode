@@ -1,0 +1,9 @@
+{
+  "$comment": "Bootstrap only. A machine must know where to fetch from before it has any configuration, so this one file is shipped once and is never part of a distributed bundle. Environment variables override every field: CAAO_CONFIG_URL, CAAO_CHANNEL, CAAO_CONFIG_TOKEN, CAAO_CONFIG_KEY, CAAO_AUTO_UPDATE, CAAO_CHECK_INTERVAL.",
+  "url": "",
+  "channel": "stable",
+  "publicKey": "caao-signing.pub",
+  "autoUpdate": true,
+  "checkIntervalMinutes": 60,
+  "timeoutMs": 2500
+}
