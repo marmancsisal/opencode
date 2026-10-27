@@ -1,5 +1,16 @@
 // Utility condivise dai test.
 import { loadConfig } from "../src/config.js";
+import { openDb } from "../src/db.js";
+import { UserStore } from "../src/store.js";
+import { MetricsStore } from "../src/metrics.js";
+
+/** Store e metriche sullo stesso DB in memoria, senza timer. */
+export function makeDeps(cfg, { now } = {}) {
+  const db = openDb(":memory:");
+  const store = new UserStore(cfg, { db, ...(now ? { now } : {}) });
+  const metrics = new MetricsStore({ db, flushIntervalMs: 0, ...(now ? { now } : {}) });
+  return { db, store, metrics };
+}
 
 export function baseConfig(overrides = {}) {
   return loadConfig({

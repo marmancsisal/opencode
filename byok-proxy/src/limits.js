@@ -122,6 +122,23 @@ export class RateLimiter {
     }
   }
 
+  /**
+   * Elimina i contatori di finestre ormai chiuse, così la memoria resta
+   * proporzionale ai clienti attivi e non a tutti quelli mai visti.
+   * @returns {number} contatori rimossi
+   */
+  sweep(maxWindowMs = WINDOWS.rpd) {
+    const now = this.now();
+    let removed = 0;
+    for (const [k, b] of this.buckets) {
+      if (now - b.windowStart >= maxWindowMs * 2) {
+        this.buckets.delete(k);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   /** Stato dei contatori per diagnostica (solo per l'utente/modello dati). */
   snapshot(cfg, user, model) {
     const out = [];

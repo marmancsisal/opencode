@@ -31,6 +31,10 @@ export function createApp({
 }) {
   const defaultGroups = cfg.oauth.defaultGroups ?? [];
   const record = metrics ? (ev) => metrics.record(ev) : () => {};
+  // La dashboard unisce clienti e utilizzo in SQL: devono stare nello stesso DB.
+  if (metrics && store.db && metrics.db && store.db !== metrics.db) {
+    throw new Error("UserStore e MetricsStore devono condividere lo stesso database");
+  }
 
   return async function handler(req, res) {
     try {

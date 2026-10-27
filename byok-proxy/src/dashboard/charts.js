@@ -3,16 +3,15 @@
 
 D.renderKpis = function renderKpis() {
   const o = D.state.overview;
-  const u = o.usage || { requests: 0, allowed: 0, blocked: 0, errors: 0, tokens: 0 };
-  const lat = D.state.events.filter((e) => e.outcome === "allowed" && Number.isFinite(e.latencyMs));
-  const avgLat = lat.length ? Math.round(lat.reduce((s, e) => s + e.latencyMs, 0) / lat.length) : null;
+  const u = o.usage || { requests: 0, allowed: 0, blocked: 0, errors: 0, tokens: 0, users: 0, avgLatencyMs: null };
+  const per = `ultimi ${D.days} giorni`;
   const kpis = [
-    { label: "Richieste totali", value: D.nf.format(u.requests), hint: `${D.pct(u.allowed, u.requests)} consentite` },
-    { label: "Token consumati", value: D.nfc.format(u.tokens), hint: "prompt + risposta" },
+    { label: "Richieste", value: D.nf.format(u.requests), hint: `${D.pct(u.allowed, u.requests)} consentite · ${per}` },
+    { label: "Token consumati", value: D.nfc.format(u.tokens), hint: per },
     { label: "Bloccate", value: D.nf.format(u.blocked), hint: `${D.pct(u.blocked, u.requests)} del totale` },
     { label: "Errori upstream", value: D.nf.format(u.errors), hint: `${D.pct(u.errors, u.requests)} del totale` },
-    { label: "Clienti attivi", value: `${o.clients.enabled}/${o.clients.total}`, hint: `${o.clients.withToken} con token` },
-    { label: "Latenza media", value: avgLat == null ? "—" : `${D.nf.format(avgLat)} ms`, hint: "richieste riuscite" },
+    { label: "Clienti", value: D.nf.format(o.clients.total), hint: `${D.nf.format(o.clients.enabled)} attivi · ${D.nf.format(u.users)} con traffico` },
+    { label: "Latenza media", value: u.avgLatencyMs == null ? "—" : `${D.nf.format(u.avgLatencyMs)} ms`, hint: "richieste riuscite" },
   ];
   D.$("#kpis").innerHTML = kpis
     .map((k) => `<div class="card kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`)
@@ -121,19 +120,17 @@ D.renderChartTable = function renderChartTable(id, rows, cols) {
 };
 
 D.renderTop = function renderTop() {
-  const clients = [...D.state.clients]
-    .filter((c) => c.usage && c.usage.requests)
-    .sort((a, b) => b.usage.requests - a.usage.requests)
-    .slice(0, 8);
-  const maxC = Math.max(1, ...clients.map((c) => c.usage.requests));
+  const clients = (D.state.usage?.topUsers || []).slice(0, 8);
+  const maxC = Math.max(1, ...clients.map((c) => c.requests));
   D.$("#topClients").innerHTML = clients.length
     ? `<thead><tr><th>Cliente</th><th class="num">Richieste</th><th class="num">Token</th><th>Quota</th></tr></thead><tbody>${clients
         .map(
-          (c) => `<tr><td>${D.esc(c.login)}</td><td class="num">${D.nf.format(c.usage.requests)}</td><td class="num">${D.nfc.format(c.usage.tokens)}</td>
-          <td><div class="inline-bar"><div class="track"><div class="fill" style="width:${((c.usage.requests / maxC) * 100).toFixed(0)}%"></div></div></div></td></tr>`
+          (c) => `<tr class="clickable" data-id="${D.esc(c.userId)}"><td>${D.esc(c.login)}</td><td class="num">${D.nf.format(c.requests)}</td><td class="num">${D.nfc.format(c.tokens)}</td>
+          <td><div class="inline-bar"><div class="track"><div class="fill" style="width:${((c.requests / maxC) * 100).toFixed(0)}%"></div></div></div></td></tr>`
         )
         .join("")}</tbody>`
-    : '<tbody><tr><td class="empty">Nessun utilizzo ancora</td></tr></tbody>';
+    : '<tbody><tr><td class="empty">Nessun utilizzo nel periodo</td></tr></tbody>';
+  D.$$("#topClients tr[data-id]").forEach((tr) => (tr.onclick = () => D.openClient(tr.dataset.id)));
 
   const models = [...(D.state.usage?.byModel || [])].slice(0, 8);
   const maxM = Math.max(1, ...models.map((m) => m.requests));

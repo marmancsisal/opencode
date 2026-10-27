@@ -1,6 +1,6 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseConfig, jsonResponse } from "./helpers.mjs";
+import { baseConfig, jsonResponse, makeDeps } from "./helpers.mjs";
 import { UserStore } from "../src/store.js";
 import { RateLimiter } from "../src/limits.js";
 import { ModelProvider } from "../src/provider.js";
@@ -23,8 +23,7 @@ before(async () => {
       { id: "junior-no-4o", match: { groups: ["junior"], models: ["openai/gpt-4o"] }, access: "deny" },
     ],
   });
-  store = new UserStore(cfg);
-  metrics = new MetricsStore();
+  ({ store, metrics } = makeDeps(cfg));
   const app = createApp({
     cfg,
     store,
@@ -154,7 +153,7 @@ test("usage ritorna serie per giorno/modello/utente", async () => {
   const u = await (await adm("/admin/api/usage?days=7")).json();
   assert.equal(u.byDay.length, 7);
   assert.ok(Array.isArray(u.byModel));
-  assert.ok(Array.isArray(u.byUser));
+  assert.ok(Array.isArray(u.topUsers));
 });
 
 test("events elenca eventi con esito", async () => {
@@ -169,15 +168,46 @@ test("rules espone regole e gruppi noti", async () => {
   assert.ok(Array.isArray(r.groups));
 });
 
+test("clients API: paginazione, ricerca, ordinamento lato server", async () => {
+  const p = await (await adm("/admin/api/clients?limit=1&offset=0&sort=login&dir=asc")).json();
+  assert.equal(p.total, 2);
+  assert.equal(p.data.length, 1);
+  assert.equal(p.data[0].id, "alice");
+  const p2 = await (await adm("/admin/api/clients?limit=1&offset=1&sort=login&dir=asc")).json();
+  assert.equal(p2.data[0].id, "bob");
+  const q = await (await adm("/admin/api/clients?q=bo")).json();
+  assert.deepEqual(q.data.map((c) => c.id), ["bob"]);
+  assert.ok(q.data[0].usage.requests >= 0);
+});
+
+test("events API: cursore e filtro esito", async () => {
+  for (let i = 0; i < 5; i++) await chatAs("k-alice", "meta/llama");
+  const p1 = await (await adm("/admin/api/events?limit=2")).json();
+  assert.equal(p1.data.length, 2);
+  assert.ok(p1.nextBefore);
+  const p2 = await (await adm(`/admin/api/events?limit=2&before=${p1.nextBefore}`)).json();
+  assert.ok(p2.data[0].id < p1.data[1].id);
+  const ok = await (await adm("/admin/api/events?outcome=allowed&limit=50")).json();
+  assert.ok(ok.data.every((e) => e.outcome === "allowed"));
+});
+
+test("le letture admin vedono subito gli eventi appena registrati", async () => {
+  const before = (await (await adm("/admin/api/overview")).json()).usage.requests;
+  await chatAs("k-alice", "meta/llama");
+  const after = (await (await adm("/admin/api/overview")).json()).usage.requests;
+  assert.equal(after, before + 1);
+});
+
 test("area admin disattivata se manca il token in config", async () => {
   const cfg2 = baseConfig(); // nessun admin.token
+  const deps = makeDeps(cfg2);
   const app = createApp({
     cfg: cfg2,
-    store: new UserStore(cfg2),
+    store: deps.store,
     limiter: new RateLimiter(),
     provider: new ModelProvider(cfg2, { fetchImpl: modelFetch }),
     deviceFlow: new DeviceFlow(cfg2.oauth, { fetchImpl: async () => jsonResponse({}) }),
-    metrics: new MetricsStore(),
+    metrics: deps.metrics,
   });
   const s = await startServer(app, { host: "127.0.0.1", port: 0 });
   const r = await fetch(`http://127.0.0.1:${s.address().port}/admin/api/overview`, {
