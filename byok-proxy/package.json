@@ -1,0 +1,17 @@
+{
+  "name": "byok-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proxy OpenAI-compatibile per modelli custom (Bring Your Own Key) con identità utente, limiti per utente/gruppo/modello e chiamata autenticata a GitHub Models.",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "byok-proxy": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test \"tests/*.test.mjs\""
+  }
+}

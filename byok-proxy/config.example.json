@@ -1,0 +1,70 @@
+{
+  "server": { "host": "127.0.0.1", "port": 8787 },
+
+  "provider": {
+    "name": "github-models",
+    "baseUrl": "https://models.github.ai/inference/chat/completions",
+    "timeoutMs": 120000
+  },
+
+  "oauth": {
+    "clientId": "Iv1.xxxxxxxxxxxx",
+    "scopes": "read:user",
+    "defaultGroups": ["standard"]
+  },
+
+  "models": [
+    { "id": "openai/gpt-4o-mini", "name": "GPT-4o mini" },
+    { "id": "openai/gpt-4o", "name": "GPT-4o" },
+    { "id": "meta/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B" }
+  ],
+  "defaultModel": "openai/gpt-4o-mini",
+
+  "users": [
+    {
+      "id": "alice",
+      "login": "alice",
+      "apiKey": "byok_alice_demo_key",
+      "groups": ["standard"],
+      "githubTokenEnv": "ALICE_GITHUB_TOKEN"
+    },
+    {
+      "id": "bob",
+      "login": "bob",
+      "apiKey": "byok_bob_demo_key",
+      "groups": ["junior"],
+      "githubTokenEnv": "BOB_GITHUB_TOKEN"
+    }
+  ],
+
+  "rules": [
+    {
+      "id": "default-per-user",
+      "match": {},
+      "countBy": "user",
+      "limits": { "rpm": 20, "rpd": 1000, "tokensPerDay": 2000000 }
+    },
+    {
+      "id": "junior-stretto",
+      "match": { "groups": ["junior"] },
+      "countBy": "user",
+      "limits": { "rpm": 5, "rpd": 200 }
+    },
+    {
+      "id": "junior-niente-gpt4o",
+      "match": { "groups": ["junior"], "models": ["openai/gpt-4o"] },
+      "access": "deny"
+    },
+    {
+      "id": "modello-costoso-condiviso",
+      "match": { "models": ["openai/gpt-4o"] },
+      "countBy": "model",
+      "limits": { "rph": 100 }
+    },
+    {
+      "id": "alice-solo-mini",
+      "match": { "users": ["alice"], "models": ["openai/gpt-4o-mini"] },
+      "access": "allow"
+    }
+  ]
+}
