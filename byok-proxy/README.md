@@ -93,10 +93,43 @@ URL del proxy, API key personale): verifica che la tua versione supporti endpoin
 | GET | `/login` | no | pagina di registrazione |
 | POST | `/login/start` | no | avvia device flow, ritorna codice e `handle` |
 | POST | `/login/poll` | no | `{handle}` → `pending` oppure `{apiKey}` |
-| GET | `/v1/models` | sì | `auto` + modelli consentiti all'utente |
-| POST | `/v1/chat/completions` | sì | chat, streaming e non |
+| GET | `/v1/models` | api key | `auto` + modelli consentiti all'utente |
+| POST | `/v1/chat/completions` | api key | chat, streaming e non |
+| GET | `/admin` | token admin (in pagina) | dashboard |
+| GET | `/admin/api/*` | token admin (Bearer) | API della dashboard |
 
 Risposte di chat con header `X-Selected-Model`. Errori in formato OpenAI (`{error:{message,type}}`).
+
+## Dashboard admin
+
+Imposta `ADMIN_TOKEN` (o `admin.token` in config) e apri `/admin`: inserisci il token e vedi
+tutto. Senza token l'area è disattivata (403). La pagina non contiene dati: chiama le API
+`/admin/api/*`, autenticate con `Authorization: Bearer <ADMIN_TOKEN>`.
+
+- **Panoramica:** KPI (richieste, token, bloccate, errori, clienti attivi, latenza media), grafici
+  richieste/token al giorno (7/30/90), classifiche clienti e modelli. Grafici con hover e vista
+  tabella; tema chiaro/scuro.
+- **Clienti:** elenco con ricerca, filtri e ordinamento; dettaglio per cliente (gruppi, modelli
+  consentiti, limiti in corso, ultime richieste). Azioni: **attiva/disattiva**, **revoca** (per i
+  clienti registrati via login), **modifica gruppi**. Le api key e i token GitHub non vengono mai
+  esposti: solo un hint mascherato e la presenza/assenza del token.
+- **Modelli / Eventi / Regole:** utilizzo per modello, log delle ultime richieste con esito, e le
+  regole attive (sola lettura, dal file di config).
+
+Le metriche sono in memoria (si azzerano al riavvio); per storico duraturo si collega lo stesso
+`MetricsStore` a un database.
+
+| Metodo | Percorso | Azione |
+|---|---|---|
+| GET | `/admin/api/overview` | totali e stato |
+| GET | `/admin/api/clients` | elenco clienti con utilizzo |
+| GET | `/admin/api/clients/:id` | dettaglio, limiti, eventi |
+| POST | `/admin/api/clients/:id/enable`·`/disable` | attiva/disattiva |
+| POST | `/admin/api/clients/:id/groups` | `{groups:[...]}` |
+| DELETE | `/admin/api/clients/:id` | revoca (solo clienti device) |
+| GET | `/admin/api/usage?days=30` | serie per giorno/modello/utente |
+| GET | `/admin/api/events?limit=100` | ultimi eventi |
+| GET | `/admin/api/rules` | regole e gruppi noti |
 
 ## Regole
 
@@ -127,13 +160,17 @@ quei modelli.
 
 ```
 src/config.js        caricamento e validazione config
-src/store.js         utenti statici + registrati, api key
+src/store.js         utenti statici + registrati, api key, gestione clienti
 src/auth.js          device flow GitHub, lettura api key
 src/models.js        modelli consentiti, scelta random
 src/limits.js        motore limiti (finestre fisse, O(1))
 src/provider.js      chiamata al modello come utente (pluggable)
+src/metrics.js       raccolta metriche d'uso (in memoria)
+src/admin.js         API admin + gestione clienti
 src/server.js        HTTP
-tests/               46 test (unit + integrazione con upstream simulato)
+src/dashboard.html   pagina dashboard
+src/dashboard/       JS dashboard (servito unito come /admin/dashboard.js)
+tests/               67 test (unit + integrazione con upstream simulato)
 ```
 
 ## Prestazioni e limiti noti

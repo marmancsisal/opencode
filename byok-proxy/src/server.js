@@ -12,6 +12,7 @@ import { readJson, sendJson, sendError } from "./http-helpers.js";
 import { readApiKey } from "./auth.js";
 import { resolveModel, allowedModelsForUser } from "./models.js";
 import { usageFromJson, usageFromSse } from "./provider.js";
+import { handleAdmin } from "./admin.js";
 
 const SSE_TAIL_LIMIT = 64 * 1024; // basta la coda per trovare l'evento usage
 const LOGIN_SESSION_TTL_MS = 15 * 60 * 1000; // come la scadenza del device code GitHub
@@ -19,8 +20,17 @@ const LOGIN_SESSION_TTL_MS = 15 * 60 * 1000; // come la scadenza del device code
 /**
  * Crea il request handler. Dipendenze iniettate per facilitare i test.
  */
-export function createApp({ cfg, store, limiter, provider, deviceFlow, deviceSessions = new Map() }) {
+export function createApp({
+  cfg,
+  store,
+  limiter,
+  provider,
+  deviceFlow,
+  metrics = null,
+  deviceSessions = new Map(),
+}) {
   const defaultGroups = cfg.oauth.defaultGroups ?? [];
+  const record = metrics ? (ev) => metrics.record(ev) : () => {};
 
   return async function handler(req, res) {
     try {
@@ -39,6 +49,9 @@ export function createApp({ cfg, store, limiter, provider, deviceFlow, deviceSes
       if (req.method === "POST" && path === "/login/poll") {
         return await handleLoginPoll(req, res, { deviceFlow, deviceSessions, store, defaultGroups });
       }
+      if (path === "/admin" || path.startsWith("/admin/")) {
+        return await handleAdmin(req, res, { path, url, cfg, store, limiter, metrics });
+      }
 
       // Da qui in poi serve l'autenticazione via api key.
       const apiKey = readApiKey(req.headers);
@@ -48,12 +61,15 @@ export function createApp({ cfg, store, limiter, provider, deviceFlow, deviceSes
           type: "authentication_error",
         });
       }
+      if (user.enabled === false) {
+        return sendError(res, 403, "Utente disattivato dall'amministratore.", { type: "user_disabled" });
+      }
 
       if (req.method === "GET" && path === "/v1/models") {
         return handleListModels(res, { cfg, user });
       }
       if (req.method === "POST" && (path === "/v1/chat/completions" || path === "/chat/completions")) {
-        return await handleChat(req, res, { cfg, user, limiter, provider });
+        return await handleChat(req, res, { cfg, user, limiter, provider, record });
       }
 
       return sendError(res, 404, `Rotta non trovata: ${req.method} ${path}`, { type: "not_found" });
@@ -72,19 +88,22 @@ function handleListModels(res, { cfg, user }) {
   return sendJson(res, 200, { object: "list", data });
 }
 
-async function handleChat(req, res, { cfg, user, limiter, provider }) {
+async function handleChat(req, res, { cfg, user, limiter, provider, record }) {
   const body = await readJson(req);
   const requested = body.model ?? cfg.defaultModel;
   const stream = body.stream === true;
+  const base = { userId: user.id, login: user.login, stream };
 
   const resolved = resolveModel(cfg, user, requested);
   if (!resolved.ok) {
+    record({ ...base, model: String(requested ?? "auto"), outcome: "blocked", status: resolved.status, reason: "model" });
     return sendError(res, resolved.status, resolved.message, { type: "model_error" });
   }
   const model = resolved.model;
 
   // Senza credenziale non si chiama nulla: rispondi prima di consumare quota.
   if (!provider.getCredential(user)?.token && !provider.refreshCredentials) {
+    record({ ...base, model, outcome: "blocked", status: 401, reason: "no_token" });
     return sendError(res, 401, "Utente senza token GitHub: deve autenticarsi (apri /login) prima di usare i modelli.", {
       type: "authentication_error",
     });
@@ -92,11 +111,13 @@ async function handleChat(req, res, { cfg, user, limiter, provider }) {
 
   const gate = limiter.tryConsume(cfg, user, model);
   if (!gate.ok) {
+    record({ ...base, model, outcome: "blocked", status: 429, reason: `limit:${gate.ruleId}` });
     return sendError(res, 429, gate.message, {
       type: "rate_limit_exceeded",
       headers: { "Retry-After": String(gate.retryAfterSec) },
     });
   }
+  const started = Date.now();
 
   // Abort propagato se il client chiude la connessione.
   const ac = new AbortController();
@@ -114,6 +135,7 @@ async function handleChat(req, res, { cfg, user, limiter, provider }) {
     });
   } catch (e) {
     const status = e.status ?? 502;
+    record({ ...base, model, outcome: "error", status, latencyMs: Date.now() - started });
     return sendError(res, status, e.message ?? "Errore upstream", { type: "upstream_error" });
   }
 
@@ -121,6 +143,7 @@ async function handleChat(req, res, { cfg, user, limiter, provider }) {
 
   // Errore upstream: rilancia status e body così il client vede l'errore reale.
   if (!response.ok) {
+    record({ ...base, model, outcome: "error", status: response.status, latencyMs: Date.now() - started });
     const text = await response.text().catch(() => "");
     res.writeHead(response.status, {
       "Content-Type": response.headers.get("content-type") || "application/json",
@@ -130,16 +153,20 @@ async function handleChat(req, res, { cfg, user, limiter, provider }) {
   }
 
   if (stream) {
-    return await pumpStream(res, response, { cfg, user, model, limiter });
+    const tokens = await pumpStream(res, response, { cfg, user, model, limiter });
+    record({ ...base, model, outcome: "allowed", status: 200, tokens, latencyMs: Date.now() - started });
+    return;
   }
 
   // Non streaming: materializza, conta i token, rilancia.
   const json = await response.json().catch(() => ({}));
-  limiter.addTokens(cfg, user, model, usageFromJson(json));
+  const tokens = usageFromJson(json);
+  limiter.addTokens(cfg, user, model, tokens);
+  record({ ...base, model, outcome: "allowed", status: 200, tokens, latencyMs: Date.now() - started });
   return sendJson(res, 200, json, { "X-Selected-Model": model });
 }
 
-/** Passthrough dello stream SSE, con conteggio token dalla coda. */
+/** Passthrough dello stream SSE, con conteggio token dalla coda. Ritorna i token usati. */
 async function pumpStream(res, response, { cfg, user, model, limiter }) {
   res.writeHead(200, {
     "Content-Type": response.headers.get("content-type") || "text/event-stream; charset=utf-8",
@@ -162,7 +189,9 @@ async function pumpStream(res, response, { cfg, user, model, limiter }) {
   } finally {
     res.end();
   }
-  limiter.addTokens(cfg, user, model, usageFromSse(tail));
+  const tokens = usageFromSse(tail);
+  limiter.addTokens(cfg, user, model, tokens);
+  return tokens;
 }
 
 async function handleLoginStart(req, res, { deviceFlow, deviceSessions }) {

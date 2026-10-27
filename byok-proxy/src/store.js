@@ -79,18 +79,70 @@ export class UserStore {
   upsertDeviceUser({ githubId, login, githubToken, groups = [] }) {
     const existingKey = githubId != null ? this.keyByGithubId.get(String(githubId)) : null;
     const apiKey = existingKey ?? generateApiKey();
+    // Preserva enabled/groups se l'utente esisteva già (es. era stato disattivato).
+    const prev = existingKey ? this.dynamicByKey.get(existingKey) : null;
     const user = {
       id: login,
       login,
       githubId,
       apiKey,
-      groups,
+      groups: groups.length ? groups : (prev?.groups ?? []),
       githubToken,
+      enabled: prev?.enabled ?? true,
       source: "device",
     };
     this.dynamicByKey.set(apiKey, user);
     if (githubId != null) this.keyByGithubId.set(String(githubId), apiKey);
     this._save();
     return { apiKey, user };
+  }
+
+  /** Tutti i clienti (statici + device), per la dashboard. */
+  listClients() {
+    const fromStatic = [...this.staticByKey.values()];
+    // Statici senza api key (es. solo lettura) non compaiono in staticByKey:
+    // integriamoli dalla config.
+    for (const u of this.cfg.users) {
+      if (!u.apiKey && !fromStatic.includes(u)) fromStatic.push(u);
+    }
+    return [...fromStatic, ...this.dynamicByKey.values()];
+  }
+
+  /** Trova un cliente per id (su entrambe le sorgenti). */
+  findById(userId) {
+    for (const u of this.cfg.users) if (u.id === userId) return u;
+    for (const u of this.dynamicByKey.values()) if (u.id === userId) return u;
+    return null;
+  }
+
+  /** Abilita/disabilita un cliente. Ritorna true se trovato. */
+  setEnabled(userId, enabled) {
+    const u = this.findById(userId);
+    if (!u) return false;
+    u.enabled = !!enabled;
+    if (u.source === "device") this._save();
+    return true;
+  }
+
+  /** Imposta i gruppi di un cliente. Persistito solo per i clienti device. */
+  setGroups(userId, groups) {
+    const u = this.findById(userId);
+    if (!u) return false;
+    u.groups = [...new Set(groups)];
+    if (u.source === "device") this._save();
+    return true;
+  }
+
+  /** Revoca un cliente registrato via device flow (rimuove api key e token). */
+  revokeDeviceUser(userId) {
+    for (const [key, u] of this.dynamicByKey) {
+      if (u.id === userId) {
+        this.dynamicByKey.delete(key);
+        if (u.githubId != null) this.keyByGithubId.delete(String(u.githubId));
+        this._save();
+        return true;
+      }
+    }
+    return false;
   }
 }

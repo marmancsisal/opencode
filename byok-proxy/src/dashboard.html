@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin proxy</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e2e1dc;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #77766f;
+  --grid: #e8e7e2;
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --critical: #d03b3b;
+  --critical-ink: #b02a2a;
+  --warning: #fab219;
+  --warning-ink: #8a5a00;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #232321;
+    --border: #2f2f2c;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8e8d85;
+    --grid: #2a2a27;
+    --accent: #3987e5;
+    --accent-ink: #ffffff;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --good-ink: #4cc94c;
+    --critical-ink: #ef7a7a;
+    --warning-ink: #fab219;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211;
+  --surface-1: #1a1a19;
+  --surface-2: #232321;
+  --border: #2f2f2c;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8e8d85;
+  --grid: #2a2a27;
+  --accent: #3987e5;
+  --accent-ink: #ffffff;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --good-ink: #4cc94c;
+  --critical-ink: #ef7a7a;
+  --warning-ink: #fab219;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+button, input, select { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer;
+}
+button:hover { background: var(--surface-2); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+button.danger { color: var(--critical-ink); }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+input, select {
+  border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; padding: 6px 10px;
+}
+[hidden] { display: none !important; }
+
+.login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login form {
+  width: 100%; max-width: 380px; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 14px; padding: 28px; box-shadow: var(--shadow); display: grid; gap: 14px;
+}
+.login h1 { margin: 0; font-size: 20px; }
+.login p { margin: 0; color: var(--text-secondary); }
+.login .err { color: var(--critical-ink); min-height: 1.2em; }
+
+header {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.bar { max-width: 1240px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.brand { font-weight: 650; font-size: 16px; margin-right: auto; }
+.brand small { color: var(--text-muted); font-weight: 400; margin-left: 8px; }
+.status { color: var(--text-muted); font-size: 12px; }
+nav { max-width: 1240px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+nav button {
+  border: none; background: none; border-radius: 0; padding: 10px 12px; color: var(--text-secondary);
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+nav button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+nav button:hover { background: none; color: var(--text-primary); }
+
+main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 20px; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+  padding: 18px; box-shadow: var(--shadow); min-width: 0;
+}
+.card h2 { margin: 0 0 4px; font-size: 15px; }
+.card .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 14px; }
+.card-head { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { padding: 16px; }
+.kpi .label { color: var(--text-secondary); font-size: 12px; }
+.kpi .value { font-size: 26px; font-weight: 650; margin-top: 4px; letter-spacing: -.01em; }
+.kpi .hint { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 20px; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-secondary); font-size: 12px; }
+.legend span::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+  margin-right: 6px; vertical-align: -1px; background: var(--c);
+}
+.chart { width: 100%; height: 200px; position: relative; }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .axis { fill: var(--text-muted); font-size: 11px; }
+.chart .s1 { fill: var(--series-1); }
+.chart .s2 { fill: var(--series-2); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit.on { fill: var(--text-primary); fill-opacity: .05; }
+.empty { color: var(--text-muted); padding: 30px 0; text-align: center; }
+
+.tip {
+  position: fixed; z-index: 20; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 140px;
+}
+.tip b { display: block; margin-bottom: 4px; }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+.tip .row i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--c); margin-right: 6px; }
+.tip .row span:last-child { color: var(--text-primary); }
+
+.table-wrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { font-size: 12px; color: var(--text-secondary); font-weight: 550; }
+th[data-sort] { cursor: pointer; user-select: none; }
+th[data-sort]:hover { color: var(--text-primary); }
+th .arrow { color: var(--text-muted); }
+td.num, th.num { text-align: right; }
+tbody tr:hover td { background: var(--surface-2); }
+tbody tr.clickable { cursor: pointer; }
+.muted { color: var(--text-muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary);
+}
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.state.ok { --c: var(--good); color: var(--good-ink); }
+.state.off { --c: var(--critical); color: var(--critical-ink); }
+.state.warn { --c: var(--warning); color: var(--warning-ink); }
+
+.inline-bar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.inline-bar .track { width: 120px; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.inline-bar .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.toolbar input[type=search] { min-width: 220px; flex: 1; max-width: 340px; }
+
+.drawer-bg { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 30; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); z-index: 31;
+  background: var(--surface-1); border-left: 1px solid var(--border); overflow-y: auto; padding: 20px;
+  display: grid; gap: 16px; align-content: start;
+}
+.drawer h2 { margin: 0; font-size: 18px; }
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; font-size: 13px; }
+.kv dt { color: var(--text-secondary); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.meter { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.meter > div { height: 100%; background: var(--series-1); }
+.meter.hot > div { background: var(--critical); }
+
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
+  background: var(--text-primary); color: var(--surface-1); padding: 8px 14px; border-radius: 8px; font-size: 13px;
+}
+@media (max-width: 640px) {
+  .kpi .value { font-size: 22px; }
+  .kv { grid-template-columns: 1fr; }
+  .kv dt { margin-top: 6px; }
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login">
+  <form id="loginForm">
+    <h1>Admin proxy</h1>
+    <p>Inserisci il token amministratore (ADMIN_TOKEN).</p>
+    <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Token admin" required>
+    <button class="primary" type="submit">Accedi</button>
+    <div class="err" id="loginErr" role="alert"></div>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="bar">
+      <div class="brand">Admin proxy <small id="providerName"></small></div>
+      <span class="status" id="lastUpdate"></span>
+      <label class="status"><input type="checkbox" id="autoRefresh" checked> aggiorna ogni 10s</label>
+      <button id="refreshBtn" type="button">Aggiorna</button>
+      <button id="themeBtn" type="button" aria-label="Cambia tema">Tema</button>
+      <button id="logoutBtn" type="button">Esci</button>
+    </div>
+    <nav role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true">Panoramica</button>
+      <button role="tab" data-tab="clients" aria-selected="false">Clienti</button>
+      <button role="tab" data-tab="models" aria-selected="false">Modelli</button>
+      <button role="tab" data-tab="events" aria-selected="false">Eventi</button>
+      <button role="tab" data-tab="rules" aria-selected="false">Regole</button>
+    </nav>
+  </header>
+
+  <main>
+    <section data-panel="overview">
+      <div class="kpis" id="kpis"></div>
+      <div class="grid-2" style="margin-top:20px">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>Richieste al giorno</h2><p class="sub" id="reqSub">Ultimi 30 giorni</p></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="daysSel" aria-label="Periodo">
+                <option value="7">7 giorni</option>
+                <option value="30" selected>30 giorni</option>
+                <option value="90">90 giorni</option>
+              </select>
+              <button type="button" data-table-toggle="reqChart">Tabella</button>
+            </div>
+          </div>
+          <div class="legend"><span style="--c:var(--series-1)">Consentite</span><span style="--c:var(--series-2)">Bloccate</span></div>
+          <div class="chart" id="reqChart"></div>
+          <div class="table-wrap" id="reqChartTable" hidden></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div><h2>Token al giorno</h2><p class="sub">Token consumati (prompt + risposta)</p></div>
+            <button type="button" data-table-toggle="tokChart">Tabella</button>
+          </div>
+          <div class="chart" id="tokChart"></div>
+          <div class="table-wrap" id="tokChartTable" hidden></div>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:20px">
+        <div class="card">
+          <h2>Clienti più attivi</h2><p class="sub">Per numero di richieste</p>
+          <div class="table-wrap"><table id="topClients"></table></div>
+        </div>
+        <div class="card">
+          <h2>Modelli più usati</h2><p class="sub">Per numero di richieste</p>
+          <div class="table-wrap"><table id="topModels"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="clients" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Clienti</h2><p class="sub">Clicca su una riga per dettagli, limiti e azioni</p></div>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="clientSearch" placeholder="Cerca per login o gruppo" aria-label="Cerca clienti">
+          <select id="clientFilter" aria-label="Filtro stato">
+            <option value="all">Tutti</option>
+            <option value="enabled">Attivi</option>
+            <option value="disabled">Disattivati</option>
+            <option value="notoken">Senza token GitHub</option>
+          </select>
+          <span class="status" id="clientCount"></span>
+        </div>
+        <div class="table-wrap"><table id="clientsTable"></table></div>
+      </div>
+    </section>
+
+    <section data-panel="models" hidden>
+      <div class="card">
+        <h2>Utilizzo per modello</h2><p class="sub">Richieste, token ed esiti per modello</p>
+        <div class="table-wrap"><table id="modelsTable"></table></div>
+      </div>
+    </section>
+
+    <section data-panel="events" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Eventi recenti</h2><p class="sub">Ultime richieste di chat, più recenti in alto</p></div>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="eventSearch" placeholder="Filtra per utente o modello" aria-label="Filtra eventi">
+          <select id="eventFilter" aria-label="Filtro esito">
+            <option value="all">Tutti gli esiti</option>
+            <option value="allowed">Consentite</option>
+            <option value="blocked">Bloccate</option>
+            <option value="error">Errori</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table id="eventsTable"></table></div>
+      </div>
+    </section>
+
+    <section data-panel="rules" hidden>
+      <div class="card">
+        <h2>Regole</h2><p class="sub">Lette dal file di config (sola lettura). Si applicano tutte quelle che corrispondono; vince la più restrittiva.</p>
+        <div class="table-wrap"><table id="rulesTable"></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="drawerBg" class="drawer-bg" hidden></div>
+<aside id="drawer" class="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawerTitle"></aside>
+<div id="tip" class="tip" hidden></div>
+<div id="toast" class="toast" hidden role="status"></div>
+
+<script src="/admin/dashboard.js"></script>
+</body>
+</html>

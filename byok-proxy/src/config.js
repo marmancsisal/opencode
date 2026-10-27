@@ -56,6 +56,7 @@ function normalizeUser(raw, index) {
     apiKey: apiKey ?? null,
     groups,
     githubToken,
+    enabled: raw.enabled !== false, // abilitato salvo esplicito false
     source: "config",
   };
 }
@@ -131,7 +132,13 @@ export function loadConfig(raw) {
     defaultGroups: asArray(raw.oauth?.defaultGroups).map(String),
   };
 
-  const cfg = { users, models, rules, defaultModel, provider, server, oauth };
+  const admin = {
+    // Token per l'accesso alla dashboard/API admin. Senza token l'area admin è
+    // disattivata (403), così non resta aperta per distrazione.
+    token: raw.admin?.token ?? process.env.ADMIN_TOKEN ?? null,
+  };
+
+  const cfg = { users, models, rules, defaultModel, provider, server, oauth, admin };
   validateCrossRefs(cfg);
   return cfg;
 }
