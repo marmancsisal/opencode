@@ -31,8 +31,6 @@ const MIGRATIONS = [
     api_key_hint     TEXT,
     groups           TEXT NOT NULL DEFAULT '[]',
     enabled          INTEGER NOT NULL DEFAULT 1,
-    github_token     TEXT,
-    has_github_token INTEGER NOT NULL DEFAULT 0,
     config_hash      TEXT,
     created_at       INTEGER NOT NULL,
     updated_at       INTEGER NOT NULL

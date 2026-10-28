@@ -1,0 +1,41 @@
+# Avvio con Docker Compose.
+#
+#   cp config.example.json config.json   # modelli, utenti, regole
+#   cp .env.example .env                 # segreti: chiave/identità Azure, token admin
+#   docker compose up -d --build
+#
+# Il proxy parla HTTP: in produzione mettilo dietro un terminatore TLS
+# (ingress di Azure Container Apps, Application Gateway, reverse proxy).
+
+services:
+  byok-proxy:
+    build: .
+    image: byok-proxy:0.3.0
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file: .env
+    volumes:
+      - ./config.json:/config/config.json:ro
+      - proxy-data:/data
+    # Hardening: filesystem in sola lettura (scrive solo nel volume /data),
+    # nessuna capability, nessuna escalation di privilegi.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    # Tempo per scrivere gli eventi in buffer e chiudere il DB allo stop.
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  proxy-data:

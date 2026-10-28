@@ -2,9 +2,8 @@
 //
 // La config descrive: utenti, gruppi, catalogo modelli e regole di limite.
 // Può arrivare da un file JSON (CONFIG_PATH) o essere passata come oggetto nei
-// test. I token GitHub degli utenti non vanno scritti in chiaro nel file: si
-// usa `githubTokenEnv` (nome di una variabile d'ambiente) oppure vengono
-// popolati a runtime dal device flow (vedi store.js).
+// test. I segreti (chiave Azure, client secret, token admin) non vanno nel file:
+// arrivano da variabili d'ambiente.
 
 import { readFileSync } from "node:fs";
 
@@ -43,29 +42,25 @@ function normalizeUser(raw, index) {
   const apiKey = raw.apiKey;
   if (apiKey != null && typeof apiKey !== "string") fail(`users[${index}].apiKey deve essere stringa`);
   const groups = asArray(raw.groups).map(String);
-  // Il token GitHub può essere: indiretto (nome di env var) o diretto (sconsigliato).
-  let githubToken = null;
-  if (raw.githubTokenEnv) {
-    githubToken = process.env[raw.githubTokenEnv] ?? null;
-  } else if (raw.githubToken) {
-    githubToken = String(raw.githubToken);
-  }
   return {
     id,
     login: raw.login ?? id,
     apiKey: apiKey ?? null,
     groups,
-    githubToken,
     enabled: raw.enabled !== false, // abilitato salvo esplicito false
     source: "config",
   };
 }
 
 function normalizeModel(raw, index) {
-  if (typeof raw === "string") return { id: raw, name: raw };
+  if (typeof raw === "string") return { id: raw, name: raw, deployment: raw };
   if (!raw || typeof raw !== "object") fail(`models[${index}] non valido`);
   if (!raw.id || typeof raw.id !== "string") fail(`models[${index}].id mancante`);
-  return { id: raw.id, name: raw.name ?? raw.id };
+  if (raw.deployment != null && (typeof raw.deployment !== "string" || !raw.deployment)) {
+    fail(`models[${index}].deployment deve essere una stringa non vuota`);
+  }
+  // id = nome mostrato ai client; deployment = nome del deployment su Azure.
+  return { id: raw.id, name: raw.name ?? raw.id, deployment: raw.deployment ?? raw.id };
 }
 
 function normalizeRule(raw, index) {
@@ -111,15 +106,12 @@ export function loadConfig(raw) {
   // Default modello scelto quando l'utente non ne specifica uno (o chiede "auto"/"random").
   const defaultModel = raw.defaultModel ?? null;
 
-  const provider = {
-    name: raw.provider?.name ?? "github-models",
-    baseUrl: raw.provider?.baseUrl ?? "https://models.github.ai/inference/chat/completions",
-    timeoutMs: raw.provider?.timeoutMs ?? 120_000,
-  };
+  const provider = normalizeProvider(raw.provider ?? {});
 
+  // Le variabili d'ambiente vincono sul file: nel container si imposta HOST=0.0.0.0.
   const server = {
-    host: raw.server?.host ?? process.env.HOST ?? "127.0.0.1",
-    port: raw.server?.port ?? Number(process.env.PORT ?? 8787),
+    host: process.env.HOST ?? raw.server?.host ?? "127.0.0.1",
+    port: Number(process.env.PORT ?? raw.server?.port ?? 8787),
   };
 
   const oauth = {
@@ -141,6 +133,38 @@ export function loadConfig(raw) {
   const cfg = { users, models, rules, defaultModel, provider, server, oauth, admin };
   validateCrossRefs(cfg);
   return cfg;
+}
+
+const PROVIDER_TYPES = ["azure-foundry", "openai-compatible"];
+const AUTH_MODES = ["key", "entra", "managed-identity"];
+
+/**
+ * Provider dei modelli. Per Azure, endpoint e modalità di auth si possono dare
+ * anche via env (AZURE_FOUNDRY_ENDPOINT, AZURE_AUTH): comodo in container.
+ */
+function normalizeProvider(p) {
+  const env = process.env;
+  const type = p.type ?? env.PROVIDER_TYPE ?? "azure-foundry";
+  if (!PROVIDER_TYPES.includes(type)) fail(`provider.type "${type}" non valido (usa ${PROVIDER_TYPES.join(", ")})`);
+  const azure = type === "azure-foundry";
+  const out = {
+    type,
+    name: p.name ?? type,
+    endpoint: azure ? (env.AZURE_FOUNDRY_ENDPOINT ?? p.endpoint ?? null) : null,
+    baseUrl: azure ? null : (env.OPENAI_BASE_URL ?? p.baseUrl ?? null),
+    auth: azure ? (env.AZURE_AUTH ?? p.auth ?? "key") : "key",
+    apiKeyEnv: p.apiKeyEnv ?? (azure ? "AZURE_FOUNDRY_API_KEY" : "OPENAI_API_KEY"),
+    scope: p.scope ?? "https://ai.azure.com/.default",
+    timeoutMs: p.timeoutMs ?? 120_000,
+    // Solo per test locali contro un finto servizio: in produzione serve https.
+    allowHttp: p.allowHttp === true,
+  };
+  if (azure && !out.endpoint) {
+    fail("provider.endpoint mancante (es. https://<risorsa>.openai.azure.com) o variabile AZURE_FOUNDRY_ENDPOINT");
+  }
+  if (!azure && !out.baseUrl) fail("provider.baseUrl mancante per openai-compatible");
+  if (!AUTH_MODES.includes(out.auth)) fail(`provider.auth "${out.auth}" non valido (usa ${AUTH_MODES.join(", ")})`);
+  return out;
 }
 
 function validateCrossRefs(cfg) {

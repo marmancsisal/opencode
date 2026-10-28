@@ -4,6 +4,9 @@ import { openDb } from "../src/db.js";
 import { UserStore } from "../src/store.js";
 import { MetricsStore } from "../src/metrics.js";
 
+// Chiave di servizio usata dal provider nei test (vedi baseConfig).
+process.env.BYOK_TEST_KEY = "test-key";
+
 /** Store e metriche sullo stesso DB in memoria, senza timer. */
 export function makeDeps(cfg, { now } = {}) {
   const db = openDb(":memory:");
@@ -14,7 +17,7 @@ export function makeDeps(cfg, { now } = {}) {
 
 export function baseConfig(overrides = {}) {
   return loadConfig({
-    provider: { baseUrl: "https://example.test/chat/completions" },
+    provider: { type: "openai-compatible", baseUrl: "https://example.test/chat/completions", apiKeyEnv: "BYOK_TEST_KEY" },
     models: [
       { id: "openai/gpt-4o-mini" },
       { id: "openai/gpt-4o" },
@@ -22,8 +25,8 @@ export function baseConfig(overrides = {}) {
     ],
     defaultModel: "openai/gpt-4o-mini",
     users: [
-      { id: "alice", apiKey: "k-alice", groups: ["standard"], githubToken: "gh-alice" },
-      { id: "bob", apiKey: "k-bob", groups: ["junior"], githubToken: "gh-bob" },
+      { id: "alice", apiKey: "k-alice", groups: ["standard"] },
+      { id: "bob", apiKey: "k-bob", groups: ["junior"] },
     ],
     ...overrides,
   });

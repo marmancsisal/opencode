@@ -31,11 +31,7 @@ D.renderClients = function renderClients() {
   const body = data
     .map((c) => {
       const u = c.usage || {};
-      const st = !c.enabled
-        ? '<span class="state off">Disattivato</span>'
-        : c.hasGithubToken
-          ? '<span class="state ok">Attivo</span>'
-          : '<span class="state warn">Senza token</span>';
+      const st = c.enabled ? '<span class="state ok">Attivo</span>' : '<span class="state off">Disattivato</span>';
       return `<tr class="clickable" data-id="${D.esc(c.id)}">
         <td>${D.esc(c.login)}</td>
         <td>${c.groups.map((g) => `<span class="pill">${D.esc(g)}</span>`).join(" ") || '<span class="muted">—</span>'}</td>
@@ -136,7 +132,6 @@ D.openClient = async function openClient(id, refresh) {
     <dl class="kv">
       <dt>Stato</dt><dd>${c.enabled ? '<span class="state ok">Attivo</span>' : '<span class="state off">Disattivato</span>'}</dd>
       <dt>Tipo</dt><dd>${c.source === "device" ? "registrato via login" : "definito in config"}</dd>
-      <dt>Token GitHub</dt><dd>${c.hasGithubToken ? '<span class="state ok">presente</span>' : '<span class="state warn">assente</span>'}</dd>
       <dt>API key</dt><dd class="mono">${D.esc(c.apiKeyHint || "—")}</dd>
       <dt>Gruppi</dt><dd>${c.groups.map((g) => `<span class="pill">${D.esc(g)}</span>`).join(" ") || '<span class="muted">nessuno</span>'}
         <button type="button" id="editGroups" style="margin-left:8px;padding:2px 8px">Modifica</button></dd>

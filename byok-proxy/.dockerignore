@@ -1,0 +1,17 @@
+# Solo il necessario entra nel contesto di build.
+.git
+node_modules
+data
+*.db
+*.db-wal
+*.db-shm
+# Segreti e config locali: si montano a runtime, mai nell'immagine.
+config.json
+.env
+.env.*
+!.env.example
+# Non servono alla build.
+scripts
+tests/e2e
+README.md
+docker-compose*.yml

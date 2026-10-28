@@ -31,6 +31,14 @@ async function main() {
   });
   const limiter = new RateLimiter();
   const provider = new ModelProvider(cfg);
+  // Credenziale verificata subito: con Entra/Managed Identity ottiene un token.
+  // Una config sbagliata ferma l'avvio con un messaggio chiaro, invece di far
+  // fallire la prima chat di un utente.
+  try {
+    await provider.check();
+  } catch (e) {
+    throw new Error(`credenziale del provider (${cfg.provider.auth}) non valida: ${e.message}`);
+  }
   const deviceFlow = new DeviceFlow(cfg.oauth);
 
   const sweep = setInterval(() => limiter.sweep(), SWEEP_EVERY_MS);
@@ -41,8 +49,10 @@ async function main() {
   const addr = server.address();
   console.log(`[byok-proxy] in ascolto su http://${addr.address}:${addr.port}`);
   console.log(`[byok-proxy] database: ${dbPath} (${store.counts().total} clienti)`);
-  console.log(`[byok-proxy] provider: ${cfg.provider.name} -> ${cfg.provider.baseUrl}`);
-  console.log(`[byok-proxy] modelli: ${cfg.models.map((m) => m.id).join(", ") || "(nessuno)"}`);
+  console.log(`[byok-proxy] provider: ${cfg.provider.type} -> ${provider.url} (auth: ${cfg.provider.auth})`);
+  console.log(
+    `[byok-proxy] modelli: ${cfg.models.map((m) => (m.deployment !== m.id ? `${m.id}→${m.deployment}` : m.id)).join(", ") || "(nessuno)"}`
+  );
   console.log(
     cfg.admin.token
       ? `[byok-proxy] dashboard admin: http://${addr.address}:${addr.port}/admin`

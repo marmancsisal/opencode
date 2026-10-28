@@ -1,9 +1,9 @@
 // Store dei clienti, su SQLite con cache in memoria.
 //
 // Due sorgenti:
-//  - clienti dalla config (api key + token GitHub via env), sincronizzati nel DB
-//    all'avvio;
+//  - clienti dalla config (con la loro api key), sincronizzati nel DB all'avvio;
 //  - clienti registrati col login GitHub (device flow), con api key generata.
+//    Il login serve solo a sapere chi è: il token GitHub non viene conservato.
 //
 // Le api key non sono mai salvate in chiaro: solo hash SHA-256 + un hint
 // mascherato per la dashboard. Il lookup api key -> utente è una Map in memoria
@@ -68,8 +68,6 @@ export class UserStore {
     this.cfg = cfg;
     this.db = db;
     this.now = now;
-    /** token GitHub dei clienti da config: solo in memoria, mai nel DB */
-    this.configTokens = new Map(cfg.users.map((u) => [u.id, u.githubToken ?? null]));
     /** hash api key -> utente */
     this.byHash = new Map();
     /** id -> utente */
@@ -88,20 +86,16 @@ export class UserStore {
       byGithubId: db.prepare("SELECT * FROM users WHERE github_id = ?"),
       all: db.prepare("SELECT * FROM users"),
       insert: db.prepare(`INSERT INTO users
-        (id, login, source, github_id, api_key_hash, api_key_hint, groups, enabled, github_token,
-         has_github_token, config_hash, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+        (id, login, source, github_id, api_key_hash, api_key_hint, groups, enabled, config_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
       updateConfig: db.prepare(`UPDATE users SET login = ?, api_key_hash = ?, api_key_hint = ?, groups = ?,
-        enabled = ?, has_github_token = ?, config_hash = ?, updated_at = ? WHERE id = ?`),
-      setHasToken: db.prepare("UPDATE users SET has_github_token = ? WHERE id = ?"),
+        enabled = ?, config_hash = ?, updated_at = ? WHERE id = ?`),
       deleteStaleConfig: db.prepare("SELECT id FROM users WHERE source = 'config'"),
       del: db.prepare("DELETE FROM users WHERE id = ?"),
-      relogin: db.prepare(`UPDATE users SET login = ?, api_key_hash = ?, api_key_hint = ?, github_token = ?,
-        has_github_token = ?, updated_at = ? WHERE id = ?`),
+      relogin: db.prepare("UPDATE users SET login = ?, api_key_hash = ?, api_key_hint = ?, updated_at = ? WHERE id = ?"),
       setEnabled: db.prepare("UPDATE users SET enabled = ?, updated_at = ? WHERE id = ?"),
       setGroups: db.prepare("UPDATE users SET groups = ?, updated_at = ? WHERE id = ?"),
-      counts: db.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(enabled), 0) AS enabled,
-        COALESCE(SUM(has_github_token), 0) AS withToken FROM users`),
+      counts: db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(enabled), 0) AS enabled FROM users"),
       groups: db.prepare("SELECT DISTINCT j.value AS g FROM users, json_each(users.groups) AS j ORDER BY g"),
       getMeta: db.prepare("SELECT value FROM meta WHERE key = ?"),
       setMeta: db.prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"),
@@ -117,18 +111,15 @@ export class UserStore {
         wanted.add(u.id);
         const row = this.q.byId.get(u.id);
         const h = configHash(u);
-        const hasToken = u.githubToken ? 1 : 0;
         const keyHash = u.apiKey ? hashKey(u.apiKey) : null;
         if (!row) {
           this.q.insert.run(u.id, u.login, "config", null, keyHash, maskKey(u.apiKey), JSON.stringify(u.groups),
-            u.enabled === false ? 0 : 1, null, hasToken, h, now, now);
+            u.enabled === false ? 0 : 1, h, now, now);
         } else if (row.source !== "config") {
           throw new Error(`Config: l'id "${u.id}" è già usato da un cliente registrato via login`);
         } else if (row.config_hash !== h) {
           this.q.updateConfig.run(u.login, keyHash, maskKey(u.apiKey), JSON.stringify(u.groups),
-            u.enabled === false ? 0 : 1, hasToken, h, now, u.id);
-        } else if (row.has_github_token !== hasToken) {
-          this.q.setHasToken.run(hasToken, u.id);
+            u.enabled === false ? 0 : 1, h, now, u.id);
         }
       }
       // Clienti tolti dalla config: non devono più poter entrare.
@@ -151,8 +142,7 @@ export class UserStore {
         if (gid && this.q.byGithubId.get(gid)) continue;
         const id = this._freeId(u.login, gid);
         this.q.insert.run(id, u.login, "device", gid, hashKey(u.apiKey), maskKey(u.apiKey),
-          JSON.stringify(u.groups ?? []), u.enabled === false ? 0 : 1, u.githubToken ?? null,
-          u.githubToken ? 1 : 0, null, now, now);
+          JSON.stringify(u.groups ?? []), u.enabled === false ? 0 : 1, null, now, now);
       }
       this.q.setMeta.run("legacy_json_imported", String(now));
     });
@@ -170,8 +160,6 @@ export class UserStore {
       githubId: r.github_id,
       groups: JSON.parse(r.groups),
       enabled: !!r.enabled,
-      githubToken: r.source === "config" ? (this.configTokens.get(r.id) ?? null) : r.github_token,
-      hasGithubToken: !!r.has_github_token,
       apiKeyHint: r.api_key_hint,
       createdAt: r.created_at,
     };
@@ -225,7 +213,7 @@ export class UserStore {
    * in chiaro, non la si può ridare. Gruppi e stato di un cliente esistente
    * restano quelli impostati dall'admin.
    */
-  upsertDeviceUser({ githubId, login, githubToken, groups = [] }) {
+  upsertDeviceUser({ githubId, login, groups = [] }) {
     const apiKey = generateApiKey();
     const h = hashKey(apiKey);
     const hint = maskKey(apiKey);
@@ -235,11 +223,10 @@ export class UserStore {
     let id;
     if (existing) {
       id = existing.id;
-      this.q.relogin.run(login, h, hint, githubToken ?? null, githubToken ? 1 : 0, now, id);
+      this.q.relogin.run(login, h, hint, now, id);
     } else {
       id = this._freeId(login, gid);
-      this.q.insert.run(id, login, "device", gid, h, hint, JSON.stringify([...new Set(groups)]), 1,
-        githubToken ?? null, githubToken ? 1 : 0, null, now, now);
+      this.q.insert.run(id, login, "device", gid, h, hint, JSON.stringify([...new Set(groups)]), 1, null, now, now);
     }
     const user = this._reload(id);
     return { apiKey, user };
@@ -259,7 +246,7 @@ export class UserStore {
     return true;
   }
 
-  /** Revoca un cliente registrato via login (api key e token eliminati). */
+  /** Revoca un cliente registrato via login (la sua api key smette di funzionare). */
   revokeDeviceUser(userId) {
     const u = this.byId.get(userId);
     if (!u || u.source !== "device") return false;
@@ -270,7 +257,7 @@ export class UserStore {
 
   counts() {
     const r = this.q.counts.get();
-    return { total: r.total, enabled: r.enabled, withToken: r.withToken };
+    return { total: r.total, enabled: r.enabled };
   }
 
   allGroups() {
@@ -286,7 +273,7 @@ export class UserStore {
    *
    * @param {object} p
    * @param {string} [p.q] cerca in id, login e gruppi (senza distinzione maiuscole)
-   * @param {"all"|"enabled"|"disabled"|"notoken"} [p.status]
+   * @param {"all"|"enabled"|"disabled"} [p.status]
    * @param {keyof SORTERS} [p.sort]
    * @param {"asc"|"desc"} [p.dir]
    * @param {number} [p.limit]
@@ -300,7 +287,6 @@ export class UserStore {
     for (const user of this.byId.values()) {
       if (status === "enabled" && !user.enabled) continue;
       if (status === "disabled" && user.enabled) continue;
-      if (status === "notoken" && user.hasGithubToken) continue;
       if (
         needle &&
         !user.login.toLowerCase().includes(needle) &&

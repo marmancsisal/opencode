@@ -100,7 +100,7 @@ test("/v1/models elenca auto + modelli consentiti all'utente", async () => {
   assert.ok(ids.includes("openai/gpt-4o-mini"));
 });
 
-test("chat non-streaming: modello random tra i consentiti, token dell'utente", async () => {
+test("chat non-streaming: modello random tra i consentiti, credenziale di servizio", async () => {
   const r = await chat("k-bob", { model: "auto", messages: [{ role: "user", content: "hi" }] });
   assert.equal(r.status, 200);
   const selected = r.headers.get("x-selected-model");
@@ -109,7 +109,7 @@ test("chat non-streaming: modello random tra i consentiti, token dell'utente", a
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://example.test/chat/completions");
-  assert.equal(calls[0].headers.Authorization, "Bearer gh-bob");
+  assert.equal(calls[0].headers.Authorization, "Bearer test-key");
   assert.equal(calls[0].body.model, selected);
   assert.equal(calls[0].body.stream, false);
 });
@@ -145,13 +145,23 @@ test("errore upstream rilanciato con lo stesso status", async () => {
   assert.equal((await r.json()).error.message, "quota");
 });
 
-test("x-initiator del client inoltrato", async () => {
-  await fetch(`${base}/v1/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: "Bearer k-alice", "X-Initiator": "agent" },
-    body: JSON.stringify({ model: "meta/llama", messages: [] }),
-  });
-  assert.equal(calls[0].headers["X-Initiator"], "agent");
+test("429 del provider: status, body e Retry-After riportati al client", async () => {
+  upstream = () =>
+    new Response(JSON.stringify({ error: { code: "429", message: "Rate limit" } }), {
+      status: 429,
+      headers: { "content-type": "application/json", "retry-after": "7", "x-ratelimit-remaining-tokens": "0" },
+    });
+  const r = await chat("k-alice", { model: "meta/llama", messages: [] });
+  assert.equal(r.status, 429);
+  assert.equal(r.headers.get("retry-after"), "7");
+  assert.equal(r.headers.get("x-ratelimit-remaining-tokens"), "0");
+  assert.equal((await r.json()).error.message, "Rate limit");
+});
+
+test("le richieste non-stream non inviano stream_options al provider", async () => {
+  await chat("k-bob", { model: "meta/llama", messages: [], stream_options: { include_usage: true } });
+  assert.equal(calls[0].body.stream, false);
+  assert.ok(!("stream_options" in calls[0].body));
 });
 
 test("limite rpm -> 429 con Retry-After", async () => {
@@ -197,37 +207,15 @@ test("device flow: start -> pending -> ok, poi l'api key funziona", async () => 
 
   const r = await chat(done.apiKey, { model: "auto", messages: [] });
   assert.equal(r.status, 200);
-  assert.equal(calls.at(-1).headers.Authorization, "Bearer gh-carol");
+  // Il proxy chiama il modello con la credenziale di servizio, non col token GitHub.
+  assert.equal(calls.at(-1).headers.Authorization, "Bearer test-key");
   // carol riceve i gruppi di default (junior): niente gpt-4o.
   assert.equal((await chat(done.apiKey, { model: "openai/gpt-4o", messages: [] })).status, 403);
 });
 
-test("utente senza token GitHub: 401 e nessuna quota consumata", async () => {
-  const cfg2 = baseConfig({
-    users: [{ id: "dan", apiKey: "k-dan", groups: [] }],
-    rules: [{ id: "uno", match: {}, limits: { rpm: 1 } }],
-  });
-  const limiter = new RateLimiter();
-  const app = createApp({
-    cfg: cfg2,
-    store: new UserStore(cfg2),
-    limiter,
-    provider: new ModelProvider(cfg2, { fetchImpl: modelFetch }),
-    deviceFlow: new DeviceFlow(cfg2.oauth, { fetchImpl: oauthFetch }),
-  });
-  const s = await startServer(app, { host: "127.0.0.1", port: 0 });
-  const url = `http://127.0.0.1:${s.address().port}/v1/chat/completions`;
-  for (let i = 0; i < 3; i++) {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: "Bearer k-dan" },
-      body: JSON.stringify({ model: "meta/llama", messages: [] }),
-    });
-    assert.equal(r.status, 401);
-  }
-  assert.equal(limiter.snapshot(cfg2, cfg2.users[0], "meta/llama")[0].used, 0);
-  assert.equal(calls.length, 0);
-  await new Promise((r) => s.close(r));
+test("healthz controlla anche il DB", async () => {
+  const r = await fetch(`${base}/healthz`);
+  assert.equal((await r.json()).provider, "openai-compatible");
 });
 
 test("rotta inesistente -> 404", async () => {

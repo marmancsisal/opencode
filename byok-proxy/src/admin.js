@@ -37,7 +37,6 @@ function clientView(cfg, u, usage) {
     groups: u.groups,
     enabled: u.enabled !== false,
     apiKeyHint: u.apiKeyHint,
-    hasGithubToken: u.hasGithubToken,
     allowedModels: allowedModelsForUser(cfg, u),
     createdAt: u.createdAt ?? null,
     usage,

@@ -94,8 +94,6 @@ test("lista clienti: niente api key o token in chiaro", async () => {
   const alice = data.find((c) => c.id === "alice");
   assert.equal(alice.apiKeyHint, maskKey("k-alice"));
   assert.ok(!JSON.stringify(data).includes("k-alice"));
-  assert.ok(!JSON.stringify(data).includes("gh-alice"));
-  assert.equal(alice.hasGithubToken, true);
   assert.ok(Array.isArray(alice.allowedModels));
 });
 

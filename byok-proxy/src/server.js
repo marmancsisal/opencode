@@ -11,7 +11,7 @@ import crypto from "node:crypto";
 import { readJson, sendJson, sendError } from "./http-helpers.js";
 import { readApiKey } from "./auth.js";
 import { resolveModel, allowedModelsForUser } from "./models.js";
-import { usageFromJson, usageFromSse } from "./provider.js";
+import { usageFromJson, usageFromSse, passthroughHeaders } from "./provider.js";
 import { handleAdmin } from "./admin.js";
 
 const SSE_TAIL_LIMIT = 64 * 1024; // basta la coda per trovare l'evento usage
@@ -42,6 +42,8 @@ export function createApp({
       const path = url.pathname;
 
       if (req.method === "GET" && path === "/healthz") {
+        // Controllo leggero: processo vivo e DB leggibile (usato dall'healthcheck del container).
+        store.db.prepare("SELECT 1").get();
         return sendJson(res, 200, { status: "ok", provider: cfg.provider.name });
       }
       if (req.method === "GET" && path === "/login") {
@@ -105,14 +107,6 @@ async function handleChat(req, res, { cfg, user, limiter, provider, record }) {
   }
   const model = resolved.model;
 
-  // Senza credenziale non si chiama nulla: rispondi prima di consumare quota.
-  if (!provider.getCredential(user)?.token && !provider.refreshCredentials) {
-    record({ ...base, model, outcome: "blocked", status: 401, reason: "no_token" });
-    return sendError(res, 401, "Utente senza token GitHub: deve autenticarsi (apri /login) prima di usare i modelli.", {
-      type: "authentication_error",
-    });
-  }
-
   const gate = limiter.tryConsume(cfg, user, model);
   if (!gate.ok) {
     record({ ...base, model, outcome: "blocked", status: 429, reason: `limit:${gate.ruleId}` });
@@ -129,14 +123,7 @@ async function handleChat(req, res, { cfg, user, limiter, provider, record }) {
 
   let upstream;
   try {
-    upstream = await provider.dispatch({
-      user,
-      model,
-      body,
-      stream,
-      clientHeaders: req.headers,
-      signal: ac.signal,
-    });
+    upstream = await provider.dispatch({ user, model, body, stream, signal: ac.signal });
   } catch (e) {
     const status = e.status ?? 502;
     record({ ...base, model, outcome: "error", status, latencyMs: Date.now() - started });
@@ -145,13 +132,15 @@ async function handleChat(req, res, { cfg, user, limiter, provider, record }) {
 
   const response = upstream.response;
 
-  // Errore upstream: rilancia status e body così il client vede l'errore reale.
+  // Errore upstream (es. 429 di Azure, filtro contenuti): rilancia status, body e
+  // Retry-After così il client vede l'errore reale e sa quando riprovare.
   if (!response.ok) {
-    record({ ...base, model, outcome: "error", status: response.status, latencyMs: Date.now() - started });
+    record({ ...base, model, outcome: "error", status: response.status, latencyMs: Date.now() - started, reason: `upstream:${response.status}` });
     const text = await response.text().catch(() => "");
     res.writeHead(response.status, {
       "Content-Type": response.headers.get("content-type") || "application/json",
       "X-Selected-Model": model,
+      ...passthroughHeaders(response),
     });
     return res.end(text);
   }
@@ -237,7 +226,6 @@ async function handleLoginPoll(req, res, { deviceFlow, deviceSessions, store, de
   const { apiKey, user } = store.upsertDeviceUser({
     githubId: ghUser.githubId,
     login: ghUser.login,
-    githubToken: result.accessToken,
     groups: defaultGroups,
   });
   deviceSessions.delete(handle);

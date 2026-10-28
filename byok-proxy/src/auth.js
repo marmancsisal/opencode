@@ -1,13 +1,11 @@
 // GitHub OAuth device flow.
 //
-// Serve una volta per utente: l'utente autorizza l'app OAuth dell'organizzazione
-// e il proxy ottiene un token GitHub per chiamare i modelli *come quell'utente*.
-// Al termine il proxy consegna un'api key personale da incollare in Visual
-// Studio come chiave del modello custom.
-//
-// Logica di richiesta/scambio token portata (e ripulita) dal flow device-code di
-// OmniRoute, ma puntata all'OAuth pubblico di GitHub; l'api interna di Copilot
-// non viene usata.
+// Serve una volta per utente, solo per sapere CHI è: l'utente autorizza l'app
+// OAuth dell'organizzazione, il proxy legge il suo account GitHub (id, login) e
+// gli consegna un'api key personale da incollare in Visual Studio come chiave
+// del modello custom. Il token GitHub ottenuto viene usato solo per leggere
+// l'identità e poi scartato: i modelli si chiamano con la credenziale Azure del
+// servizio.
 
 import { extractBearer } from "./http-helpers.js";
 

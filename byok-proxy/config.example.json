@@ -2,39 +2,28 @@
   "server": { "host": "127.0.0.1", "port": 8787 },
 
   "provider": {
-    "name": "github-models",
-    "baseUrl": "https://models.github.ai/inference/chat/completions",
+    "type": "azure-foundry",
+    "endpoint": "https://NOME-RISORSA.openai.azure.com",
+    "auth": "key",
+    "apiKeyEnv": "AZURE_FOUNDRY_API_KEY",
     "timeoutMs": 120000
   },
 
   "oauth": {
-    "clientId": "Iv1.xxxxxxxxxxxx",
     "scopes": "read:user",
     "defaultGroups": ["standard"]
   },
 
   "models": [
-    { "id": "openai/gpt-4o-mini", "name": "GPT-4o mini" },
-    { "id": "openai/gpt-4o", "name": "GPT-4o" },
-    { "id": "meta/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B" }
+    { "id": "gpt-4.1-mini", "name": "GPT-4.1 mini", "deployment": "gpt-41-mini" },
+    { "id": "gpt-4.1", "name": "GPT-4.1", "deployment": "gpt-41" },
+    { "id": "DeepSeek-R1", "name": "DeepSeek R1", "deployment": "DeepSeek-R1" }
   ],
-  "defaultModel": "openai/gpt-4o-mini",
+  "defaultModel": "gpt-4.1-mini",
 
   "users": [
-    {
-      "id": "alice",
-      "login": "alice",
-      "apiKey": "byok_alice_demo_key",
-      "groups": ["standard"],
-      "githubTokenEnv": "ALICE_GITHUB_TOKEN"
-    },
-    {
-      "id": "bob",
-      "login": "bob",
-      "apiKey": "byok_bob_demo_key",
-      "groups": ["junior"],
-      "githubTokenEnv": "BOB_GITHUB_TOKEN"
-    }
+    { "id": "alice", "apiKey": "byok_alice_demo_key", "groups": ["standard"] },
+    { "id": "bob", "apiKey": "byok_bob_demo_key", "groups": ["junior"] }
   ],
 
   "rules": [
@@ -51,19 +40,19 @@
       "limits": { "rpm": 5, "rpd": 200 }
     },
     {
-      "id": "junior-niente-gpt4o",
-      "match": { "groups": ["junior"], "models": ["openai/gpt-4o"] },
+      "id": "junior-niente-gpt41",
+      "match": { "groups": ["junior"], "models": ["gpt-4.1"] },
       "access": "deny"
     },
     {
       "id": "modello-costoso-condiviso",
-      "match": { "models": ["openai/gpt-4o"] },
+      "match": { "models": ["gpt-4.1"] },
       "countBy": "model",
       "limits": { "rph": 100 }
     },
     {
       "id": "alice-solo-mini",
-      "match": { "users": ["alice"], "models": ["openai/gpt-4o-mini"] },
+      "match": { "users": ["alice"], "models": ["gpt-4.1-mini"] },
       "access": "allow"
     }
   ]

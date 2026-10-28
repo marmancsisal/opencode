@@ -1,9 +1,9 @@
 {
   "name": "byok-proxy",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Proxy OpenAI-compatibile per modelli custom (Bring Your Own Key) con identità utente, limiti per utente/gruppo/modello, metriche su SQLite e dashboard admin.",
+  "description": "Proxy OpenAI-compatibile per modelli custom (Bring Your Own Key) verso Azure AI Foundry, con identità utente, limiti per utente/gruppo/modello, metriche su SQLite e dashboard admin.",
   "engines": {
     "node": ">=22.13"
   },
@@ -13,6 +13,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/index.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/*.test.mjs\"",
-    "bench": "node --disable-warning=ExperimentalWarning scripts/bench.mjs"
+    "bench": "node --disable-warning=ExperimentalWarning scripts/bench.mjs",
+    "e2e:docker": "bash scripts/e2e-docker.sh"
   }
 }

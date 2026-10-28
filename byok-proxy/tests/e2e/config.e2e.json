@@ -1,0 +1,28 @@
+{
+  "provider": {
+    "type": "azure-foundry",
+    "endpoint": "https://127.0.0.1:19443",
+    "auth": "key"
+  },
+  "oauth": {
+    "deviceCodeUrl": "https://127.0.0.1:19443/login/device/code",
+    "tokenUrl": "https://127.0.0.1:19443/login/oauth/access_token",
+    "userInfoUrl": "https://127.0.0.1:19443/user",
+    "defaultGroups": ["standard"]
+  },
+  "models": [
+    { "id": "gpt-4.1-mini", "deployment": "mini-prod" },
+    { "id": "gpt-4.1", "deployment": "full-prod" },
+    { "id": "slow-model", "deployment": "throttled" }
+  ],
+  "defaultModel": "gpt-4.1-mini",
+  "users": [
+    { "id": "alice", "apiKey": "byok_e2e_alice_key", "groups": ["standard"] },
+    { "id": "bob", "apiKey": "byok_e2e_bob_key", "groups": ["junior"] }
+  ],
+  "rules": [
+    { "id": "per-utente", "match": {}, "limits": { "rpm": 30 } },
+    { "id": "junior-rpm", "match": { "groups": ["junior"] }, "limits": { "rpm": 6 } },
+    { "id": "junior-no-gpt41", "match": { "groups": ["junior"], "models": ["gpt-4.1"] }, "access": "deny" }
+  ]
+}
